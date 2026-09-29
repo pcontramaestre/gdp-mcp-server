@@ -293,11 +293,35 @@ def register_tools(mcp) -> None:
         await ctx.report_progress(progress=1, total=4)
         ep = appl.discovery.endpoints.get(api_function_name)
         if not ep:
-            return _error_response(
-                "NOT_FOUND",
-                f"Unknown endpoint '{api_function_name}' on '{appl.name}'.",
-                "Use gdp_search_apis to find endpoints.",
-            )
+            # Fallback inteligente: permitir ejecución directa del recurso REST (ej. unit_data, stap, datasource)
+            verb = "GET"
+            call_params = dict(parameters) if parameters else {}
+            if "method" in call_params:
+                verb = call_params.pop("method").upper()
+            elif "reportName" in call_params or "reportParameter" in call_params:
+                verb = "POST"
+
+            await ctx.log("info", f"Executing direct REST resource {verb} /restAPI/{api_function_name} on '{appl.name}'")
+            await ctx.info(f"Direct calling GDP ({appl.name}): {verb} /restAPI/{api_function_name}")
+            try:
+                result = await appl.client.request(verb, api_function_name, params=call_params or None)
+                await ctx.report_progress(progress=3, total=4)
+                text = json.dumps(result, indent=2, default=str)
+                if len(text) > 30_000:
+                    count = len(result) if isinstance(result, list) else "N/A"
+                    text = (
+                        f"Response truncated ({len(text):,} chars, {count} items). "
+                        f"Showing first 30,000 chars:\n\n{text[:30_000]}\n\n"
+                        f"... [truncated — use parameters to filter results]"
+                    )
+                await ctx.report_progress(progress=4, total=4)
+                return text
+            except Exception as exc:
+                return _error_response(
+                    "NOT_FOUND",
+                    f"Endpoint '{api_function_name}' not found in discovery index on '{appl.name}' and direct invocation failed: {exc}",
+                    "Use gdp_search_apis to find endpoints or verify the endpoint path.",
+                )
 
         await ctx.log("info", f"Calling {ep.verb} /restAPI/{ep.resource_name} on '{appl.name}'")
         await ctx.info(f"Calling GDP ({appl.name}): {ep.verb} /restAPI/{ep.resource_name}")
@@ -386,7 +410,7 @@ def register_tools(mcp) -> None:
             return _error_response(
                 "CLI_NOT_CONFIGURED",
                 f"Guard CLI is not available on '{appl.name}' — GDPCLIClient was not initialized.",
-                f"Set GDP_CLI_PASS (or GDP_{appl.name.upper()}_CLI_PASS) to enable CLI access.",
+                f"Set GDP_CLI_PASS or GDP_CLI_KEY_FILE (or GDP_{appl.name.upper()}_CLI_PASS / GDP_{appl.name.upper()}_CLI_KEY_FILE) to enable CLI access.",
             )
 
         from .cli import _DESTRUCTIVE_PATTERNS

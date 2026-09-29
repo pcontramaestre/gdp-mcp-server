@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gdp-mcp-server"
+version = "2.0.0"
+description = "IBM Guardium Data Protection MCP Server"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "Anuj Shrivastava", email = "ashrivastava@in.ibm.com" }
+]
+dependencies = [
+    "mcp>=1.2.0,<2",
+    "pydantic>=2.0",
+    "python-dotenv>=1.0.0",
+    "httpx>=0.27.0",
+    "paramiko>=3.4.0",
+    "starlette>=0.37.0",
+    "uvicorn>=0.30.0"
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0.0",
+    "pytest-mock>=3.14.0",
+    "pytest-asyncio>=0.23.0"
+]
+
+[project.scripts]
+gdp-mcp = "src.server:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]

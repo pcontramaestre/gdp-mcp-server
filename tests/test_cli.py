@@ -71,8 +71,9 @@ def test_safe_pattern_does_not_match(cmd: str):
 
 @pytest.fixture
 def unconfigured_config(monkeypatch):
-    """Returns a GDPConfig with no CLI password."""
+    """Returns a GDPConfig with no CLI password or key file."""
     monkeypatch.delenv("GDP_CLI_PASS", raising=False)
+    monkeypatch.delenv("GDP_CLI_KEY_FILE", raising=False)
     monkeypatch.setenv("GDP_HOST", "test-host")
     return GDPConfig()
 
@@ -82,14 +83,27 @@ def configured_config(monkeypatch):
     """Returns a GDPConfig with CLI password set."""
     monkeypatch.setenv("GDP_HOST", "test-host")
     monkeypatch.setenv("GDP_CLI_PASS", "test-pass")
+    monkeypatch.delenv("GDP_CLI_KEY_FILE", raising=False)
     monkeypatch.setenv("GDP_CLI_HOST", "cli-host")
     monkeypatch.setenv("GDP_CLI_PORT", "2222")
     monkeypatch.setenv("GDP_CLI_USER", "cli")
     return GDPConfig()
 
 
+@pytest.fixture
+def key_configured_config(monkeypatch):
+    """Returns a GDPConfig with CLI key file set."""
+    monkeypatch.delenv("GDP_CLI_PASS", raising=False)
+    monkeypatch.setenv("GDP_HOST", "test-host")
+    monkeypatch.setenv("GDP_CLI_KEY_FILE", "/path/to/key.pem")
+    monkeypatch.setenv("GDP_CLI_HOST", "cli-host")
+    monkeypatch.setenv("GDP_CLI_PORT", "22")
+    monkeypatch.setenv("GDP_CLI_USER", "cli")
+    return GDPConfig()
+
+
 def test_cli_not_configured(unconfigured_config):
-    """Client with no password should report not configured."""
+    """Client with no password or key should report not configured."""
     client = GDPCLIClient(unconfigured_config)
     assert client.configured is False
 
@@ -97,6 +111,12 @@ def test_cli_not_configured(unconfigured_config):
 def test_cli_configured(configured_config):
     """Client with password should report configured."""
     client = GDPCLIClient(configured_config)
+    assert client.configured is True
+
+
+def test_cli_configured_with_key_file(key_configured_config):
+    """Client with key file should report configured."""
+    client = GDPCLIClient(key_configured_config)
     assert client.configured is True
 
 

@@ -28,17 +28,26 @@ class GDPAuth:
         """Request a new token from the GDP OAuth endpoint."""
         logger.info("Requesting OAuth token from %s", self._config.token_url)
         async with httpx.AsyncClient(verify=self._config.verify_ssl, timeout=30.0) as http:
-            resp = await http.post(
-                self._config.token_url,
-                data={
-                    "grant_type": "password",
-                    "client_id": self._config.client_id,
-                    "client_secret": self._config.client_secret,
-                    "username": self._config.username,
-                    "password": self._config.password,
-                },
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            )
+            if self._config.api_key:
+                resp = await http.post(
+                    self._config.token_url,
+                    headers={
+                        "Authorization": f"HOBA {self._config.api_key.strip()}",
+                        "Content-Type": "application/json",
+                    },
+                )
+            else:
+                resp = await http.post(
+                    self._config.token_url,
+                    data={
+                        "grant_type": "password",
+                        "client_id": self._config.client_id,
+                        "client_secret": self._config.client_secret,
+                        "username": self._config.username,
+                        "password": self._config.password,
+                    },
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                )
             resp.raise_for_status()
             data = resp.json()
 

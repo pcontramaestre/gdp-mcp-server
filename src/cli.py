@@ -7,6 +7,7 @@ fails with "Incorrect number of arguments / Usage: cli_wrapper".
 
 import asyncio
 import logging
+import os
 import re
 import time
 
@@ -78,7 +79,11 @@ class GDPCLIClient:
 
     @property
     def configured(self) -> bool:
-        return bool(self._config.cli_pass)
+        return bool(self._config.cli_pass or self._config.cli_key_file)
+
+    def close(self) -> None:
+        """Close any pooled connections (no-op as SSH connection is per-command)."""
+        pass
 
     async def execute(
         self,
@@ -98,9 +103,9 @@ class GDPCLIClient:
         """
         if not self.configured:
             return (
-                "Guard CLI is not configured. Set GDP_CLI_PASS in your environment. "
+                "Guard CLI is not configured. Set GDP_CLI_PASS or GDP_CLI_KEY_FILE in your environment. "
                 "Optional: GDP_CLI_HOST (defaults to GDP_HOST), "
-                "GDP_CLI_PORT (defaults to 2222), GDP_CLI_USER (defaults to cli)."
+                "GDP_CLI_PORT (defaults to 22), GDP_CLI_USER (defaults to cli)."
             )
 
         command = command.strip()
@@ -180,18 +185,24 @@ class GDPCLIClient:
         port = self._config.cli_port
         user = self._config.cli_user
         password = self._config.cli_pass
+        key_file = self._config.cli_key_file
 
         try:
             logger.info("SSH %s@%s:%d — %s", user, host, port, command)
-            client.connect(
-                hostname=host,
-                port=port,
-                username=user,
-                password=password,
-                timeout=15,
-                look_for_keys=False,
-                allow_agent=False,
-            )
+            connect_kwargs = {
+                "hostname": host,
+                "port": port,
+                "username": user,
+                "timeout": 15,
+                "look_for_keys": False,
+                "allow_agent": False,
+            }
+            if key_file:
+                connect_kwargs["key_filename"] = os.path.expanduser(key_file)
+            if password:
+                connect_kwargs["password"] = password
+
+            client.connect(**connect_kwargs)
 
             chan = client.invoke_shell(width=200, height=50)
             chan.settimeout(3)
@@ -214,7 +225,7 @@ class GDPCLIClient:
         except paramiko.AuthenticationException:
             return (
                 f"SSH authentication failed for {user}@{host}:{port}. "
-                f"Check GDP_CLI_USER and GDP_CLI_PASS."
+                f"Check GDP_CLI_USER, GDP_CLI_PASS, or GDP_CLI_KEY_FILE."
             )
         except paramiko.SSHException as e:
             return f"SSH error connecting to {host}:{port}: {e}"

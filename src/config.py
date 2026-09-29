@@ -50,13 +50,15 @@ class GDPConfig:
     client_secret: str = field(default_factory=lambda: os.getenv("GDP_CLIENT_SECRET", ""))
     username: str = field(default_factory=lambda: os.getenv("GDP_USERNAME", ""))
     password: str = field(default_factory=lambda: os.getenv("GDP_PASSWORD", ""))
+    api_key: str = field(default_factory=lambda: os.getenv("GDP_API_KEY", ""))
     verify_ssl: bool = field(default_factory=lambda: os.getenv("GDP_VERIFY_SSL", "false").lower() == "true")
 
     # Guard CLI (SSH) — optional, only needed for gdp_guard_cli
     cli_host: str = field(default_factory=lambda: os.getenv("GDP_CLI_HOST") or os.getenv("GDP_EXTERNAL_HOST") or os.getenv("GDP_HOST", "localhost"))
-    cli_port: int = field(default_factory=lambda: int(os.getenv("GDP_CLI_PORT", "2222")))
+    cli_port: int = field(default_factory=lambda: int(os.getenv("GDP_CLI_PORT", "22")))
     cli_user: str = field(default_factory=lambda: os.getenv("GDP_CLI_USER", "cli"))
     cli_pass: str = field(default_factory=lambda: os.getenv("GDP_CLI_PASS", ""))
+    cli_key_file: str = field(default_factory=lambda: os.getenv("GDP_CLI_KEY_FILE", ""))
 
     @property
     def base_url(self) -> str:
@@ -108,11 +110,13 @@ class GDPConfig:
             client_secret=_get("CLIENT_SECRET", "GDP_CLIENT_SECRET"),
             username=_get("USERNAME", "GDP_USERNAME"),
             password=_get("PASSWORD", "GDP_PASSWORD"),
+            api_key=_get("API_KEY", "GDP_API_KEY"),
             verify_ssl=_get("VERIFY_SSL", "GDP_VERIFY_SSL", "false").lower() == "true",
             cli_host=cli_host,
-            cli_port=int(_get("CLI_PORT", "GDP_CLI_PORT", "2222")),
+            cli_port=int(_get("CLI_PORT", "GDP_CLI_PORT", "22")),
             cli_user=_get("CLI_USER", "GDP_CLI_USER", "cli"),
             cli_pass=_get("CLI_PASS", "GDP_CLI_PASS"),
+            cli_key_file=_get("CLI_KEY_FILE", "GDP_CLI_KEY_FILE"),
         )
 
     def cache_path_for(self, name: str) -> Path:

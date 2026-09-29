@@ -84,7 +84,7 @@ def _build_appliance(name: str, config: GDPConfig) -> ApplianceContext:
     auth = GDPAuth(config)
     client = GDPClient(config, auth)
     discovery = GDPDiscovery(client)
-    cli_client = GDPCLIClient(config) if config.cli_pass else None
+    cli_client = GDPCLIClient(config) if (config.cli_pass or config.cli_key_file) else None
     return ApplianceContext(
         name=name,
         config=config,
