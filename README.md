@@ -36,44 +36,47 @@ Enable autonomous AI agents (such as **Antigravity IDE**, **Claude Desktop**, **
 ## 🏗️ Architecture
 
 ```mermaid
-%%{init: {'theme': 'default'}}%%
 flowchart TB
-    subgraph "AI Clients"
+    subgraph clients ["AI Assistants"]
         A1["🤖 Antigravity IDE"]
         A2["🧠 Claude Desktop"]
         A3["💻 IBM Bob / Cursor"]
     end
 
-    subgraph "GDP MCP Server (v2.0.0)"
-        MCP{{"⚙️ gdp-mcp server"}}
-        subgraph "MCP Tools"
-            T1["🔍 gdp_search_apis"]
-            T2["📋 gdp_list_categories"]
-            T3["📄 gdp_get_api_details"]
-            T4["🚀 gdp_execute_api"]
-            T5["🖥️ gdp_guard_cli"]
-        end
+    subgraph server ["GDP MCP Server"]
         ROUTER["🔀 Multi-Appliance Router"]
+        T1["🔍 gdp_search_apis"]
+        T2["📋 gdp_list_categories"]
+        T3["📄 gdp_get_api_details"]
+        T4["🚀 gdp_execute_api"]
+        T5["🖥️ gdp_guard_cli"]
     end
 
-    subgraph "Guardium Infrastructure"
-        subgraph "Appliance: OCI Collector / CM"
-            OCI_API["🌐 REST API (:8443)"]
-            OCI_CLI["🖥️ CLI SSH (:22 - Password)"]
-        end
-        subgraph "Appliance: AWS Collector"
-            AWS_API["🌐 REST API (:8443)"]
-            AWS_CLI["🖥️ CLI SSH (:22 - RSA Key)"]
-        end
+    subgraph oci ["Guardium Appliance: OCI"]
+        OCI_API["🌐 REST API (Port 8443)"]
+        OCI_CLI["🖥️ CLI SSH (Port 22 - Password)"]
     end
 
-    A1 & A2 & A3 -->|"MCP Protocol (stdio or HTTP)"| MCP
-    MCP --> ROUTER
-    ROUTER --> T1 & T2 & T3 & T4 & T5
+    subgraph aws ["Guardium Appliance: AWS"]
+        AWS_API["🌐 REST API (Port 8443)"]
+        AWS_CLI["🖥️ CLI SSH (Port 22 - RSA Key)"]
+    end
 
-    T4 -->|"Bearer API Key / OAuth"| OCI_API & AWS_API
-    T5 -->|"Paramiko SSH (Password)"| OCI_CLI
-    T5 -->|"Paramiko SSH (RSA Key)"| AWS_CLI
+    A1 --> ROUTER
+    A2 --> ROUTER
+    A3 --> ROUTER
+
+    ROUTER --> T1
+    ROUTER --> T2
+    ROUTER --> T3
+    ROUTER --> T4
+    ROUTER --> T5
+
+    T4 -->|"Bearer API Key / OAuth"| OCI_API
+    T4 -->|"Bearer API Key / OAuth"| AWS_API
+
+    T5 -->|"Paramiko SSH"| OCI_CLI
+    T5 -->|"Paramiko SSH"| AWS_CLI
 ```
 
 ---
