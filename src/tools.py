@@ -13,6 +13,7 @@ Targets MCP spec 2025-11-25:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import TYPE_CHECKING
@@ -452,3 +453,70 @@ def register_tools(mcp) -> None:
         await ctx.report_progress(progress=3, total=3)
         await ctx.log("info", f"CLI result: {len(result)} chars from '{appl.name}'")
         return result
+
+    # ── Tool 6: List appliances + health ────────────────────────
+
+    @mcp.tool(
+        title="List GDP Appliances",
+        annotations=ToolAnnotations(
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=False,
+        ),
+    )
+    async def gdp_list_appliances(
+        include_hostname: bool = False,
+        ctx: Context = None,
+    ) -> str:
+        """List the configured GDP appliances and whether they are reachable.
+
+        Returns JSON with, per appliance: name, whether it is the default,
+        REST API status (reachable, authenticated, latency_ms, error) and
+        Guard CLI status (configured, reachable, latency_ms, error). All
+        appliances are probed concurrently. The CLI check is a TCP connect
+        to the SSH port only — it does not log in.
+
+        Call this first to find out which appliances exist and which are
+        online, instead of trying a command to find out.
+
+        Args:
+            include_hostname: Also run 'show system hostname' over the Guard CLI
+                on each reachable appliance and include it as cli.hostname.
+                Slow (~10 s per appliance, run in parallel). Default False.
+        """
+        app = _get_app(ctx)
+        await ctx.log("info", f"gdp_list_appliances: probing {len(app.appliances)} appliance(s)")
+
+        async def probe(appl: ApplianceContext) -> dict:
+            cfg = appl.config
+            cli: dict = {"configured": appl.cli_client is not None}
+            if appl.cli_client is not None:
+                cli.update(host=cfg.cli_host, port=cfg.cli_port, user=cfg.cli_user)
+            try:
+                rest, cli_probe = await asyncio.gather(
+                    asyncio.wait_for(appl.client.health_check(), timeout=20),
+                    appl.cli_client.check_reachable()
+                    if appl.cli_client is not None
+                    else asyncio.sleep(0),
+                )
+            except asyncio.TimeoutError:
+                rest = {"host": cfg.host, "port": cfg.port, "reachable": False,
+                        "authenticated": False, "error": "REST health check timed out"}
+                cli_probe = None
+            if isinstance(cli_probe, dict):
+                cli.update(cli_probe)
+            if include_hostname and cli.get("reachable"):
+                out = await appl.cli_client.execute("show system hostname")
+                cli["hostname"] = out.strip().splitlines()[0] if out.strip() else None
+            return {
+                "name": appl.name,
+                "is_default": appl.name == app.default_name,
+                "rest": rest,
+                "cli": cli,
+            }
+
+        results = await asyncio.gather(*(probe(a) for a in app.appliances.values()))
+        return json.dumps(
+            {"default": app.default_name, "appliances": list(results)}, indent=2
+        )

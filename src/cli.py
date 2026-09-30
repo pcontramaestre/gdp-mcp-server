@@ -81,6 +81,34 @@ class GDPCLIClient:
     def configured(self) -> bool:
         return bool(self._config.cli_pass or self._config.cli_key_file)
 
+    async def check_reachable(self, timeout: float = 5.0) -> dict:
+        """TCP-probe the CLI SSH port (no login, no banner wait).
+
+        Returns reachability and connect latency in ms; a failed probe
+        includes an ``error`` message.
+        """
+        host, port = self._config.cli_host, self._config.cli_port
+        start = time.perf_counter()
+        try:
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port), timeout=timeout
+            )
+        except (OSError, asyncio.TimeoutError) as exc:
+            return {
+                "reachable": False,
+                "latency_ms": round((time.perf_counter() - start) * 1000),
+                "error": str(exc) or type(exc).__name__,
+            }
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except OSError:
+            pass
+        return {
+            "reachable": True,
+            "latency_ms": round((time.perf_counter() - start) * 1000),
+        }
+
     def close(self) -> None:
         """Close any pooled connections (no-op as SSH connection is per-command)."""
         pass

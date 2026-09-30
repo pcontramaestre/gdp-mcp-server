@@ -2,6 +2,7 @@
 
 import logging
 import os
+import time
 from typing import Any
 
 import httpx
@@ -107,20 +108,27 @@ class GDPClient:
             }
 
     async def health_check(self) -> dict[str, Any]:
-        """Quick connectivity check to the GDP appliance. Returns status info."""
+        """Probe the appliance REST API. Returns status info incl. latency.
+
+        Forces a fresh OAuth token request so the probe makes a real round
+        trip to the appliance instead of answering from the token cache.
+        """
+        info: dict[str, Any] = {"host": self._config.host, "port": self._config.port}
+        self._auth.invalidate()
+        start = time.perf_counter()
         try:
             await self._auth.get_token()
-            return {
-                "reachable": True,
-                "authenticated": True,
-                "host": self._config.host,
-                "port": self._config.port,
-            }
         except Exception as exc:
-            return {
-                "reachable": False,
-                "authenticated": False,
-                "host": self._config.host,
-                "port": self._config.port,
-                "error": str(exc),
-            }
+            info.update(
+                reachable=False,
+                authenticated=False,
+                latency_ms=round((time.perf_counter() - start) * 1000),
+                error=str(exc),
+            )
+            return info
+        info.update(
+            reachable=True,
+            authenticated=True,
+            latency_ms=round((time.perf_counter() - start) * 1000),
+        )
+        return info

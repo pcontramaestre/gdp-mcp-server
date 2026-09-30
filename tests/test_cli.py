@@ -318,3 +318,34 @@ async def test_cli_fileserver_blocked(configured_config):
     client = GDPCLIClient(configured_config)
     result = await client.execute("fileserver 10.0.0.1 300")
     assert "cannot be automated" in result.lower()
+
+
+# ── check_reachable (TCP probe of the CLI SSH port) ─────────────
+
+import asyncio as _asyncio
+
+
+@pytest.mark.asyncio
+async def test_check_reachable_open_port():
+    server = await _asyncio.start_server(lambda r, w: w.close(), "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    cfg = GDPConfig(host="127.0.0.1", cli_host="127.0.0.1", cli_port=port, cli_pass="x")
+    try:
+        result = await GDPCLIClient(cfg).check_reachable()
+    finally:
+        server.close()
+        await server.wait_closed()
+    assert result["reachable"] is True
+    assert isinstance(result["latency_ms"], int)
+
+
+@pytest.mark.asyncio
+async def test_check_reachable_closed_port():
+    server = await _asyncio.start_server(lambda r, w: w.close(), "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    server.close()
+    await server.wait_closed()
+    cfg = GDPConfig(host="127.0.0.1", cli_host="127.0.0.1", cli_port=port, cli_pass="x")
+    result = await GDPCLIClient(cfg).check_reachable(timeout=2)
+    assert result["reachable"] is False
+    assert result["error"]

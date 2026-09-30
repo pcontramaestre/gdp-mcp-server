@@ -150,6 +150,7 @@ mcp = FastMCP(
         "configuring, and managing GDP appliances. "
         "Workflow: gdp_search_apis → gdp_get_api_details → gdp_execute_api. "
         "For system-level operations, use gdp_guard_cli (Guard CLI over SSH). "
+        "Use gdp_list_appliances to see which appliances are configured and online. "
         "When multiple appliances are configured, pass the 'appliance' parameter "
         "to target a specific one (omit to use the default)."
     ),

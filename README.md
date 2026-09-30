@@ -307,6 +307,7 @@ Configure an MCP stdio server with:
 | `gdp_get_api_details` | Retrieve complete parameter schema, HTTP method, and path for an API. | `api_name` (str), `appliance` (optional) |
 | `gdp_execute_api` | Execute a GuardAPI function or REST endpoint with JSON parameters. | `api_name` (str), `parameters` (dict), `appliance` (optional) |
 | `gdp_guard_cli` | Run Guardium administrative CLI commands via authenticated SSH session. | `command` (str), `appliance` (optional) |
+| `gdp_list_appliances` | List configured appliances with REST/CLI reachability and latency (JSON). | `include_hostname` (optional) |
 
 ### 🛡️ CLI Command Safeguards
 `gdp_guard_cli` includes a built-in safety inspection engine:
