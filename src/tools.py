@@ -18,9 +18,9 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field
 from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
+from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from .server import AppContext, ApplianceContext
@@ -500,7 +500,7 @@ def register_tools(mcp) -> None:
                     if appl.cli_client is not None
                     else asyncio.sleep(0),
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 rest = {"host": cfg.host, "port": cfg.port, "reachable": False,
                         "authenticated": False, "error": "REST health check timed out"}
                 cli_probe = None

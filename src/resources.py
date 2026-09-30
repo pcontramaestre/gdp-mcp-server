@@ -19,8 +19,6 @@ from __future__ import annotations
 import json
 import logging
 
-
-
 logger = logging.getLogger("gdp_mcp")
 
 
@@ -138,7 +136,6 @@ def register_resources(mcp) -> None:
         mime_type="text/markdown",
     )
     async def get_cli_reference() -> str:
-        import importlib.resources as pkg_resources
         from pathlib import Path
 
         # Try docs/cli-reference.md relative to project root

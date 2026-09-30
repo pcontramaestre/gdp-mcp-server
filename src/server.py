@@ -27,10 +27,10 @@ from . import keystore
 from .auth import GDPAuth
 from .cli import GDPCLIClient
 from .client import GDPClient
+from .completions import register_completions
 from .config import GDPConfig, load_appliance_names
 from .discovery import GDPDiscovery
 from .prompts import register_prompts
-from .completions import register_completions
 from .resources import register_resources
 from .tools import register_tools
 

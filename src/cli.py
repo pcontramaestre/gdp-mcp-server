@@ -93,7 +93,7 @@ class GDPCLIClient:
             _, writer = await asyncio.wait_for(
                 asyncio.open_connection(host, port), timeout=timeout
             )
-        except (OSError, asyncio.TimeoutError) as exc:
+        except (TimeoutError, OSError) as exc:
             return {
                 "reachable": False,
                 "latency_ms": round((time.perf_counter() - start) * 1000),

@@ -27,6 +27,10 @@ test = [
     "pytest-mock>=3.14.0",
     "pytest-asyncio>=0.23.0"
 ]
+dev = [
+    "gdp-mcp-server[test]",
+    "ruff>=0.6.0"
+]
 
 [project.scripts]
 gdp-mcp = "src.server:main"
@@ -34,3 +38,15 @@ gdp-mcp = "src.server:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]
+
+[tool.ruff]
+target-version = "py311"
+extend-exclude = ["graphify-out"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+# Long lines are tolerated (help texts, prompts); formatting is not enforced.
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,12 +1,11 @@
 """Tests for Guard CLI client — destructive pattern detection and command handling."""
 
-import re
+import asyncio
 
 import pytest
 
 from src.cli import _DESTRUCTIVE_PATTERNS, _INTERACTIVE_CMDS, GDPCLIClient
 from src.config import GDPConfig
-
 
 # ── Destructive pattern detection ───────────────────────────────
 
@@ -168,13 +167,12 @@ async def test_cli_destructive_allowed_when_confirmed(configured_config, mocker)
 @pytest.mark.asyncio
 async def test_cli_ssh_auth_failure(configured_config, mocker):
     """SSH auth failure should return helpful error message."""
-    import paramiko
     mocker.patch.object(
         client := GDPCLIClient(configured_config),
         "_ssh_exec",
         side_effect=lambda cmd, timeout: (
-            f"SSH authentication failed for cli@cli-host:2222. "
-            f"Check GDP_CLI_USER and GDP_CLI_PASS."
+            "SSH authentication failed for cli@cli-host:2222. "
+            "Check GDP_CLI_USER and GDP_CLI_PASS."
         ),
     )
     result = await client.execute("show system info")
@@ -322,12 +320,10 @@ async def test_cli_fileserver_blocked(configured_config):
 
 # ── check_reachable (TCP probe of the CLI SSH port) ─────────────
 
-import asyncio as _asyncio
-
 
 @pytest.mark.asyncio
 async def test_check_reachable_open_port():
-    server = await _asyncio.start_server(lambda r, w: w.close(), "127.0.0.1", 0)
+    server = await asyncio.start_server(lambda r, w: w.close(), "127.0.0.1", 0)
     port = server.sockets[0].getsockname()[1]
     cfg = GDPConfig(host="127.0.0.1", cli_host="127.0.0.1", cli_port=port, cli_pass="x")
     try:
@@ -341,7 +337,7 @@ async def test_check_reachable_open_port():
 
 @pytest.mark.asyncio
 async def test_check_reachable_closed_port():
-    server = await _asyncio.start_server(lambda r, w: w.close(), "127.0.0.1", 0)
+    server = await asyncio.start_server(lambda r, w: w.close(), "127.0.0.1", 0)
     port = server.sockets[0].getsockname()[1]
     server.close()
     await server.wait_closed()

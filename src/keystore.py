@@ -11,9 +11,8 @@ import logging
 import os
 import secrets
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger("gdp_mcp.keystore")
 
@@ -41,12 +40,12 @@ def _load_store() -> dict:
     if not path.exists():
         return {"keys": {}}
     try:
-        with open(path, "r") as f:
+        with open(path) as f:
             data = json.load(f)
         if "keys" not in data:
             data["keys"] = {}
         return data
-    except (json.JSONDecodeError, IOError) as e:
+    except (OSError, json.JSONDecodeError) as e:
         logger.error("Failed to read key store at %s: %s", KEY_STORE_PATH, e)
         return {"keys": {}}
 
@@ -59,7 +58,7 @@ def _save_store(store: dict) -> None:
         with open(path, "w") as f:
             json.dump(store, f, indent=2)
         os.chmod(KEY_STORE_PATH, 0o600)
-    except IOError as e:
+    except OSError as e:
         logger.error("Failed to write key store at %s: %s", KEY_STORE_PATH, e)
         raise
 
@@ -73,7 +72,7 @@ def generate_key(user: str) -> dict:
     raw_key = secrets.token_hex(32)  # 64-char hex string
     hashed = _hash_key(raw_key)
     prefix = _key_prefix(raw_key)
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     with _lock:
         store = _load_store()
@@ -94,7 +93,7 @@ def generate_key(user: str) -> dict:
     }
 
 
-def validate_key(raw_key: str) -> Optional[dict]:
+def validate_key(raw_key: str) -> dict | None:
     """Validate a raw API key against the store.
 
     Returns the key metadata (user, created, key_prefix) if valid, None otherwise.
@@ -128,7 +127,7 @@ def list_keys() -> list:
     ]
 
 
-def revoke_key(key_prefix: str) -> Optional[dict]:
+def revoke_key(key_prefix: str) -> dict | None:
     """Revoke a key by its prefix. Returns the revoked key metadata, or None if not found."""
     with _lock:
         store = _load_store()
