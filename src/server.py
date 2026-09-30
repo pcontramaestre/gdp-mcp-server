@@ -131,8 +131,10 @@ async def app_lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
         )
 
     yield app
-    # Shutdown — close pooled CLI SSH connections
+    # Shutdown — close pooled HTTP clients and CLI SSH connections
     for ctx in app.appliances.values():
+        await ctx.client.aclose()
+        await ctx.auth.aclose()
         if ctx.cli_client:
             ctx.cli_client.close()
     logger.info("GDP MCP Server shutting down")
@@ -275,6 +277,9 @@ def _create_http_app(host: str = "0.0.0.0", port: int = 8003) -> Starlette:
                         logger.info("Startup discovery '%s': %d endpoints cached", name, count)
                     except Exception as exc:
                         logger.warning("Startup discovery '%s' failed: %s", name, exc)
+                    finally:
+                        await client.aclose()
+                        await auth.aclose()
             else:
                 cfg = GDPConfig()
                 auth = GDPAuth(cfg)
@@ -285,6 +290,9 @@ def _create_http_app(host: str = "0.0.0.0", port: int = 8003) -> Starlette:
                     logger.info("Startup discovery: %d endpoints cached", count)
                 except Exception as exc:
                     logger.warning("Startup discovery failed: %s", exc)
+                finally:
+                    await client.aclose()
+                    await auth.aclose()
             yield
 
     async def health(request):

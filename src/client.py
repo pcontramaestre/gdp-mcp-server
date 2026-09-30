@@ -27,6 +27,25 @@ class GDPClient:
             read=_DEFAULT_TIMEOUT,
             write=30.0,
         )
+        self._http: httpx.AsyncClient | None = None
+
+    def _get_http(self) -> httpx.AsyncClient:
+        """Return the persistent HTTP client, creating it on first use.
+
+        Reusing one client keeps the TCP/TLS connection alive between calls
+        instead of redoing the handshake on every request.
+        """
+        if self._http is None:
+            self._http = httpx.AsyncClient(
+                verify=self._config.verify_ssl, timeout=self._timeout
+            )
+        return self._http
+
+    async def aclose(self) -> None:
+        """Close the persistent HTTP client (call on server shutdown)."""
+        if self._http is not None:
+            await self._http.aclose()
+            self._http = None
 
     async def request(
         self,
@@ -48,9 +67,22 @@ class GDPClient:
 
         logger.debug("%s %s params=%s", method.upper(), url, params)
 
-        async with httpx.AsyncClient(
-            verify=self._config.verify_ssl, timeout=self._timeout
-        ) as http:
+        http = self._get_http()
+        if method.upper() in ("GET",):
+            resp = await http.request(
+                method.upper(), url, params=params, headers=headers
+            )
+        else:
+            resp = await http.request(
+                method.upper(), url, json=params, headers=headers
+            )
+
+        # Retry once on 401 (token may have expired server-side)
+        if resp.status_code == 401:
+            logger.info("Got 401, refreshing token and retrying")
+            self._auth.invalidate()
+            token = await self._auth.get_token()
+            headers["Authorization"] = f"Bearer {token}"
             if method.upper() in ("GET",):
                 resp = await http.request(
                     method.upper(), url, params=params, headers=headers
@@ -60,34 +92,19 @@ class GDPClient:
                     method.upper(), url, json=params, headers=headers
                 )
 
-            # Retry once on 401 (token may have expired server-side)
-            if resp.status_code == 401:
-                logger.info("Got 401, refreshing token and retrying")
-                self._auth.invalidate()
-                token = await self._auth.get_token()
-                headers["Authorization"] = f"Bearer {token}"
-                if method.upper() in ("GET",):
-                    resp = await http.request(
-                        method.upper(), url, params=params, headers=headers
-                    )
-                else:
-                    resp = await http.request(
-                        method.upper(), url, json=params, headers=headers
-                    )
+        resp.raise_for_status()
 
-            resp.raise_for_status()
+        if resp.status_code == 204 or not resp.content:
+            return {"status": "success", "http_code": resp.status_code}
 
-            if resp.status_code == 204 or not resp.content:
-                return {"status": "success", "http_code": resp.status_code}
-
-            try:
-                return resp.json()
-            except ValueError:
-                return {
-                    "status": "success",
-                    "http_code": resp.status_code,
-                    "body": resp.text[:2000],
-                }
+        try:
+            return resp.json()
+        except ValueError:
+            return {
+                "status": "success",
+                "http_code": resp.status_code,
+                "body": resp.text[:2000],
+            }
 
     async def health_check(self) -> dict[str, Any]:
         """Quick connectivity check to the GDP appliance. Returns status info."""
