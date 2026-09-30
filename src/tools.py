@@ -22,6 +22,8 @@ from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
+from .metrics import fetch_system_metrics
+
 if TYPE_CHECKING:
     from .server import AppContext, ApplianceContext
 
@@ -523,3 +525,56 @@ def register_tools(mcp) -> None:
         return json.dumps(
             {"default": app.default_name, "appliances": list(results)}, indent=2
         )
+
+    # ── Tool 7: System metrics ──────────────────────────────────
+
+    @mcp.tool(
+        title="Get GDP System Metrics",
+        annotations=ToolAnnotations(
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=False,
+        ),
+    )
+    async def gdp_get_system_metrics(
+        appliance: str | None = None,
+        samples: int = 1,
+        include_raw: bool = False,
+        ctx: Context = None,
+    ) -> str:
+        """Get structured health metrics of a GDP appliance (REST, JSON).
+
+        Reads the appliance's own health samples (the "Buff Usage Monitor"
+        online report, recorded about once a minute) and returns typed JSON:
+          - system: cpu_load_pct, memory_usage_pct, root_disk_usage_pct,
+            var_disk_usage_pct, uptime_seconds / uptime
+          - sniffer: cpu_pct, mem_pct, free_buffer_space_pct, analyzer/logger
+            rates and queue lengths, analyzer/priority queue drops
+          - mysql: cpu_pct, mem_pct, disk_usage_pct
+          - status ("ok" | "warning") and warnings: values past rules of thumb
+            (CPU >= 85, memory >= 90, / or /var or MySQL disk >= 80, free
+            buffer <= 20, any queue drops). These are heuristics, not limits
+            defined by Guardium.
+
+        Args:
+            appliance: Optional — target appliance name (omit for default)
+            samples: Number of most recent samples (1-60). With more than one,
+                a "history" list (newest first) shows the trend of CPU,
+                memory, /var disk, free buffer and sniffer CPU.
+            include_raw: Also return the complete unparsed report row of the
+                latest sample (all columns, values as strings).
+        """
+        appl = _resolve_appliance(ctx, appliance)
+        await ctx.log("info", f"gdp_get_system_metrics: appliance={appl.name} samples={samples}")
+        try:
+            metrics = await fetch_system_metrics(appl.client, samples, include_raw)
+        except Exception as exc:
+            await ctx.log("error", f"System metrics failed on '{appl.name}': {exc}")
+            return _error_response(
+                "METRICS_FAILED",
+                f"Could not get system metrics from '{appl.name}': {exc}",
+                "Check that the appliance is reachable (gdp_list_appliances) and that "
+                "the API user can run online reports.",
+            )
+        return json.dumps({"appliance": appl.name, **metrics}, indent=2, default=str)
