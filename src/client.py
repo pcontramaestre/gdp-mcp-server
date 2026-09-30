@@ -92,7 +92,7 @@ class GDPClient:
     async def health_check(self) -> dict[str, Any]:
         """Quick connectivity check to the GDP appliance. Returns status info."""
         try:
-            token = await self._auth.get_token()
+            await self._auth.get_token()
             return {
                 "reachable": True,
                 "authenticated": True,

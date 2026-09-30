@@ -71,7 +71,7 @@ _INTERACTIVE_CMDS = re.compile(
 
 
 class GDPCLIClient:
-    """SSH client for the Guard CLI (cli@host:2222)."""
+    """SSH client for the Guard CLI (port and user from GDP_CLI_PORT / GDP_CLI_USER)."""
 
     def __init__(self, config: GDPConfig) -> None:
         self._config = config
@@ -116,7 +116,9 @@ class GDPCLIClient:
             return (
                 f"⚠️ '{command}' requires interactive input (password prompt, "
                 f"paste dialog, wizard, or TUI menu) and cannot be automated "
-                f"over SSH. Run it manually via: ssh cli@<host> -p 2222"
+                f"over SSH. Run it manually via: "
+                f"ssh {self._config.cli_user}@{self._config.cli_host} "
+                f"-p {self._config.cli_port}"
             )
 
         if _DESTRUCTIVE_PATTERNS.search(command) and not confirm_destructive:
