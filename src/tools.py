@@ -465,25 +465,23 @@ def register_tools(mcp) -> None:
             openWorldHint=False,
         ),
     )
-    async def gdp_list_appliances(
-        include_hostname: bool = False,
-        ctx: Context = None,
-    ) -> str:
-        """List the configured GDP appliances and whether they are reachable.
+    async def gdp_list_appliances(ctx: Context = None) -> str:
+        """List the configured GDP appliances, what they are, and whether they are reachable.
 
         Returns JSON with, per appliance: name, whether it is the default,
-        REST API status (reachable, authenticated, latency_ms, error) and
-        Guard CLI status (configured, reachable, latency_ms, error). All
-        appliances are probed concurrently. The CLI check is a TCP connect
-        to the SSH port only — it does not log in.
+        REST API status (reachable, authenticated, latency_ms, error), the
+        appliance identity from the REST API (unit.hostname, ip, unit_type,
+        role, version, online) and Guard CLI status (configured, reachable,
+        latency_ms, error). All appliances are probed concurrently. The CLI
+        check is a TCP connect to the SSH port only — it does not log in.
 
-        Call this first to find out which appliances exist and which are
-        online, instead of trying a command to find out.
+        ``unit.unit_type`` is the raw Guardium value (e.g. "StandaloneNetInsp",
+        the same information as the CLI command ``show unit type``);
+        ``unit.role`` is a best-effort label (central_manager, aggregator,
+        collector) and is null when the type is not recognized.
 
-        Args:
-            include_hostname: Also run 'show system hostname' over the Guard CLI
-                on each reachable appliance and include it as cli.hostname.
-                Slow (~10 s per appliance, run in parallel). Default False.
+        Call this first to find out which appliances exist, what role they
+        have and which are online, instead of trying a command to find out.
         """
         app = _get_app(ctx)
         await ctx.log("info", f"gdp_list_appliances: probing {len(app.appliances)} appliance(s)")
@@ -506,13 +504,18 @@ def register_tools(mcp) -> None:
                 cli_probe = None
             if isinstance(cli_probe, dict):
                 cli.update(cli_probe)
-            if include_hostname and cli.get("reachable"):
-                out = await appl.cli_client.execute("show system hostname")
-                cli["hostname"] = out.strip().splitlines()[0] if out.strip() else None
+
+            unit = None
+            if rest.get("authenticated"):
+                try:
+                    unit = await asyncio.wait_for(appl.client.get_unit_info(), timeout=15)
+                except Exception as exc:
+                    unit = {"error": str(exc) or type(exc).__name__}
             return {
                 "name": appl.name,
                 "is_default": appl.name == app.default_name,
                 "rest": rest,
+                "unit": unit,
                 "cli": cli,
             }
 
