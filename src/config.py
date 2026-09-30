@@ -28,7 +28,21 @@ def _load_env() -> None:
 
 _load_env()
 
-_CACHE_DIR = Path(__file__).resolve().parents[1]
+_DEFAULT_CACHE_DIR = Path(__file__).resolve().parents[1]
+
+
+def _cache_dir() -> Path:
+    """Directory for the endpoint-discovery caches.
+
+    Defaults to the project root; set GDP_CACHE_DIR to relocate it (e.g. to a
+    persistent volume in a container, where the install path is read-only).
+    """
+    override = os.getenv("GDP_CACHE_DIR", "").strip()
+    if not override:
+        return _DEFAULT_CACHE_DIR
+    path = Path(override).expanduser()
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def _env(key: str, default: str = "") -> str:
@@ -70,7 +84,7 @@ class GDPConfig:
 
     @property
     def cache_path(self) -> Path:
-        return _CACHE_DIR / "gdp_discovery_with_params.json"
+        return _cache_dir() / "gdp_discovery_with_params.json"
 
     @classmethod
     def from_prefix(cls, prefix: str) -> "GDPConfig":
@@ -121,7 +135,7 @@ class GDPConfig:
 
     def cache_path_for(self, name: str) -> Path:
         """Return an appliance-specific discovery cache path."""
-        return _CACHE_DIR / f"gdp_discovery_{name}.json"
+        return _cache_dir() / f"gdp_discovery_{name}.json"
 
 
 def load_appliance_names() -> list[str]:
