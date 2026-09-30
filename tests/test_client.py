@@ -1,5 +1,8 @@
 """Tests for persistent HTTP client reuse in GDPClient / GDPAuth."""
 
+import json
+
+import httpx
 import pytest
 
 from src.auth import GDPAuth
@@ -71,3 +74,115 @@ async def test_health_check_failure_reports_error(config):
     assert info["authenticated"] is False
     assert info["error"] == "boom"
     assert "latency_ms" in info
+
+
+# ── GDPClient.request() against a mocked transport ──────────────
+
+class FakeAuth:
+    """Hands out tok-1, tok-2, ... and records invalidations."""
+
+    def __init__(self):
+        self.count = 0
+        self.invalidations = 0
+
+    def invalidate(self):
+        self.invalidations += 1
+
+    async def get_token(self):
+        if self.invalidations >= self.count:
+            self.count += 1
+        return f"tok-{self.count}"
+
+
+def make_client(config, handler):
+    auth = FakeAuth()
+    client = GDPClient(config, auth)
+    client._http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    return client, auth
+
+
+@pytest.mark.asyncio
+async def test_get_sends_query_params_and_bearer(config):
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    client, _ = make_client(config, handler)
+    result = await client.request("GET", "some_api", {"a": "1"})
+    assert result == {"ok": True}
+    assert seen[0].method == "GET"
+    assert seen[0].url.params["a"] == "1"
+    assert seen[0].headers["Authorization"] == "Bearer tok-1"
+    assert str(seen[0].url).startswith(f"{config.base_url}/some_api")
+
+
+@pytest.mark.asyncio
+async def test_post_sends_json_body(config):
+    seen = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    client, _ = make_client(config, handler)
+    await client.request("post", "some_api", {"x": 2})
+    assert seen[0].method == "POST"
+    assert json.loads(seen[0].content) == {"x": 2}
+
+
+@pytest.mark.asyncio
+async def test_401_refreshes_token_and_retries_once(config):
+    tokens = []
+
+    def handler(request):
+        tokens.append(request.headers["Authorization"])
+        if len(tokens) == 1:
+            return httpx.Response(401)
+        return httpx.Response(200, json={"ok": True})
+
+    client, auth = make_client(config, handler)
+    result = await client.request("GET", "some_api")
+    assert result == {"ok": True}
+    assert auth.invalidations == 1
+    assert tokens == ["Bearer tok-1", "Bearer tok-2"]
+
+
+@pytest.mark.asyncio
+async def test_persistent_401_raises_after_single_retry(config):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(401)
+
+    client, _ = make_client(config, handler)
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.request("GET", "some_api")
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_http_error_status_raises(config):
+    client, _ = make_client(config, lambda r: httpx.Response(500))
+    with pytest.raises(httpx.HTTPStatusError):
+        await client.request("GET", "some_api")
+
+
+@pytest.mark.asyncio
+async def test_204_returns_success_dict(config):
+    client, _ = make_client(config, lambda r: httpx.Response(204))
+    assert await client.request("DELETE", "some_api") == {
+        "status": "success",
+        "http_code": 204,
+    }
+
+
+@pytest.mark.asyncio
+async def test_non_json_body_is_wrapped_and_truncated(config):
+    client, _ = make_client(config, lambda r: httpx.Response(200, text="x" * 5000))
+    result = await client.request("GET", "some_api")
+    assert result["status"] == "success"
+    assert result["http_code"] == 200
+    assert len(result["body"]) == 2000
