@@ -309,6 +309,15 @@ Configure an MCP stdio server with:
 | `gdp_guard_cli` | Run Guardium administrative CLI commands via authenticated SSH session. | `command` (str), `appliance` (optional) |
 | `gdp_list_appliances` | List configured appliances with identity (hostname, IP, unit type, role, version) and REST/CLI reachability and latency (JSON). | none |
 
+### ⚡ Persistent CLI session
+
+Each appliance keeps one SSH session to the Guard CLI and reuses it, so the first `gdp_guard_cli` call pays the ~9 s login/banner and the following ones take ~0.3 s. Commands on the same appliance run one at a time; different appliances are independent.
+
+- The Guard CLI closes sessions that stay idle for about 4 minutes, so a session is recycled after `GDP_CLI_IDLE_TTL` seconds without use (default `180`, capped at `210`). The next call after that opens a fresh one.
+- If the session turns out to be dead before a command is sent, it is replaced and the command is retried once. A command that was already sent is never re-sent.
+- If a command times out, the session is discarded so its leftover output cannot leak into the next command.
+- Set `GDP_CLI_PERSISTENT=false` to go back to one SSH connection per command. Both settings also accept the per-appliance prefix (e.g. `GDP_OCI_CLI_IDLE_TTL`).
+
 ### 🛡️ CLI Command Safeguards
 `gdp_guard_cli` includes a built-in safety inspection engine:
 - **Destructive Command Blocking:** Dangerous commands (`store system format`, `restart system`, `halt`, `stop system`) are blocked from accidental autonomous execution.

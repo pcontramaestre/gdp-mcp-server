@@ -49,6 +49,10 @@ def _env(key: str, default: str = "") -> str:
     return os.getenv(key, default)
 
 
+def _truthy(value: str) -> bool:
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
 @dataclass(frozen=True)
 class GDPConfig:
     """GDP connection configuration resolved from environment variables.
@@ -73,6 +77,11 @@ class GDPConfig:
     cli_user: str = field(default_factory=lambda: os.getenv("GDP_CLI_USER", "cli"))
     cli_pass: str = field(default_factory=lambda: os.getenv("GDP_CLI_PASS", ""))
     cli_key_file: str = field(default_factory=lambda: os.getenv("GDP_CLI_KEY_FILE", ""))
+    # Keep one SSH session per appliance and reuse it between commands. The
+    # session is recycled after cli_idle_ttl seconds without use, because the
+    # Guard CLI closes sessions idle for ~4 minutes.
+    cli_persistent: bool = field(default_factory=lambda: _truthy(os.getenv("GDP_CLI_PERSISTENT", "true")))
+    cli_idle_ttl: float = field(default_factory=lambda: float(os.getenv("GDP_CLI_IDLE_TTL", "180")))
 
     @property
     def base_url(self) -> str:
@@ -131,6 +140,8 @@ class GDPConfig:
             cli_user=_get("CLI_USER", "GDP_CLI_USER", "cli"),
             cli_pass=_get("CLI_PASS", "GDP_CLI_PASS"),
             cli_key_file=_get("CLI_KEY_FILE", "GDP_CLI_KEY_FILE"),
+            cli_persistent=_truthy(_get("CLI_PERSISTENT", "GDP_CLI_PERSISTENT", "true")),
+            cli_idle_ttl=float(_get("CLI_IDLE_TTL", "GDP_CLI_IDLE_TTL", "180")),
         )
 
     def cache_path_for(self, name: str) -> Path:

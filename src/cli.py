@@ -9,6 +9,7 @@ import asyncio
 import logging
 import os
 import re
+import threading
 import time
 
 import paramiko
@@ -70,12 +71,25 @@ _INTERACTIVE_CMDS = re.compile(
 )
 
 
+# The Guard CLI closes a session that is idle for ~4 minutes; never hold a
+# pooled session longer than this, whatever GDP_CLI_IDLE_TTL says.
+_MAX_IDLE_TTL = 210.0
+
+
 class GDPCLIClient:
     """SSH client for the Guard CLI (port and user from GDP_CLI_PORT / GDP_CLI_USER)."""
 
     def __init__(self, config: GDPConfig) -> None:
         self._config = config
         self._available: bool | None = None
+        # Pooled session state — guarded by _lock (one command at a time).
+        self._persistent = config.cli_persistent
+        self._idle_ttl = min(max(config.cli_idle_ttl, 0.0), _MAX_IDLE_TTL)
+        self._clock = time.monotonic
+        self._lock = threading.Lock()
+        self._client: paramiko.SSHClient | None = None
+        self._chan: paramiko.Channel | None = None
+        self._last_used = 0.0
 
     @property
     def configured(self) -> bool:
@@ -110,8 +124,9 @@ class GDPCLIClient:
         }
 
     def close(self) -> None:
-        """Close any pooled connections (no-op as SSH connection is per-command)."""
-        pass
+        """Close the pooled SSH session, if any."""
+        with self._lock:
+            self._drop_session()
 
     async def execute(
         self,
@@ -166,26 +181,45 @@ class GDPCLIClient:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _read_until_prompt(chan: paramiko.Channel, timeout: float) -> str:
-        """Read from *chan* until the Guard CLI prompt or *timeout*."""
+    def _read_response(chan: paramiko.Channel, timeout: float) -> tuple[str, bool, bool]:
+        """Read from *chan* until the Guard CLI prompt or *timeout*.
+
+        Returns ``(text, prompt_seen, channel_closed)``.
+        """
         buf = b""
+        prompt_seen = False
+        closed = False
         deadline = time.time() + timeout
         while time.time() < deadline:
             try:
                 chunk = chan.recv(4096)
-                if not chunk:
-                    break
-                buf += chunk
-                text = buf.decode("utf-8", errors="replace")
-                # Strip ANSI escapes before checking — the CLI often appends
-                # control sequences (e.g. \x1b[K) after the prompt, which
-                # breaks the $ anchor in _PROMPT_RE.
-                clean_text = _ANSI_RE.sub("", text)
-                if _PROMPT_RE.search(clean_text):
-                    break
-            except Exception:          # socket.timeout
+            except TimeoutError:
                 time.sleep(0.3)
-        return buf.decode("utf-8", errors="replace")
+                continue
+            except (OSError, EOFError):
+                closed = True
+                break
+            if not chunk:
+                closed = True
+                break
+            buf += chunk
+            # Strip ANSI escapes before checking — the CLI often appends
+            # control sequences (e.g. \x1b[K) after the prompt, which
+            # breaks the $ anchor in _PROMPT_RE.
+            clean_text = _ANSI_RE.sub("", buf.decode("utf-8", errors="replace"))
+            if _PROMPT_RE.search(clean_text):
+                prompt_seen = True
+                break
+        return buf.decode("utf-8", errors="replace"), prompt_seen, closed
+
+    @staticmethod
+    def _drain(chan: paramiko.Channel) -> None:
+        """Discard any unread bytes so they are not mistaken for new output."""
+        try:
+            while chan.recv_ready():
+                chan.recv(4096)
+        except (OSError, EOFError):
+            pass
 
     @staticmethod
     def _clean(raw: str, command: str) -> str:
@@ -206,8 +240,19 @@ class GDPCLIClient:
         result = "\n".join(cleaned).strip()
         return result or "(no output)"
 
-    def _ssh_exec(self, command: str, timeout: int) -> str:
-        """Open an interactive Guard CLI shell, send *command*, return output."""
+    def _error_message(self, exc: Exception) -> str:
+        host, port, user = self._config.cli_host, self._config.cli_port, self._config.cli_user
+        if isinstance(exc, paramiko.AuthenticationException):
+            return (
+                f"SSH authentication failed for {user}@{host}:{port}. "
+                f"Check GDP_CLI_USER, GDP_CLI_PASS, or GDP_CLI_KEY_FILE."
+            )
+        if isinstance(exc, paramiko.SSHException):
+            return f"SSH error connecting to {host}:{port}: {exc}"
+        return f"Cannot reach {host}:{port}: {exc}"
+
+    def _open_session(self, timeout: int) -> tuple[paramiko.SSHClient, paramiko.Channel]:
+        """Connect, open the interactive Guard CLI shell and wait for its prompt."""
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
@@ -218,7 +263,7 @@ class GDPCLIClient:
         key_file = self._config.cli_key_file
 
         try:
-            logger.info("SSH %s@%s:%d — %s", user, host, port, command)
+            logger.info("SSH %s@%s:%d — opening session", user, host, port)
             connect_kwargs = {
                 "hostname": host,
                 "port": port,
@@ -233,33 +278,96 @@ class GDPCLIClient:
                 connect_kwargs["password"] = password
 
             client.connect(**connect_kwargs)
+            transport = client.get_transport()
+            if transport is not None:
+                transport.set_keepalive(30)
 
             chan = client.invoke_shell(width=200, height=50)
             chan.settimeout(3)
 
             # Wait for the CLI banner + prompt (can take 10-15 s)
-            banner_timeout = min(timeout * 0.5, 30)
-            banner = self._read_until_prompt(chan, banner_timeout)
+            banner, _, _ = self._read_response(chan, min(timeout * 0.5, 30))
             logger.debug("CLI banner: %s", banner[:200])
+            return client, chan
+        except BaseException:
+            client.close()
+            raise
 
-            # Send the command
+    def _session_usable(self) -> bool:
+        """True if the pooled session is open and was used recently enough."""
+        if self._client is None or self._chan is None or self._chan.closed:
+            return False
+        transport = self._client.get_transport()
+        if transport is None or not transport.is_active():
+            return False
+        return self._clock() - self._last_used < self._idle_ttl
+
+    def _drop_session(self) -> None:
+        """Close and forget the pooled session (caller holds the lock)."""
+        chan, client = self._chan, self._client
+        self._chan = self._client = None
+        for closer in (chan, client):
+            if closer is not None:
+                try:
+                    closer.close()
+                except Exception:  # best effort
+                    logger.debug("Error closing CLI session", exc_info=True)
+
+    def _ssh_exec(self, command: str, timeout: int) -> str:
+        """Run *command* in the Guard CLI and return its cleaned output."""
+        if not self._persistent:
+            return self._ssh_exec_oneshot(command, timeout)
+        with self._lock:
+            return self._ssh_exec_pooled(command, timeout)
+
+    def _ssh_exec_oneshot(self, command: str, timeout: int) -> str:
+        """Open a fresh session for this single command, then close it."""
+        client = None
+        try:
+            client, chan = self._open_session(timeout)
+            logger.info("SSH command: %s", command)
             chan.send(command + "\n")
-
-            # Read the command output until the next prompt
-            cmd_timeout = max(timeout - banner_timeout, 15)
-            raw = self._read_until_prompt(chan, cmd_timeout)
-
+            cmd_timeout = max(timeout - min(timeout * 0.5, 30), 15)
+            raw, _, _ = self._read_response(chan, cmd_timeout)
             chan.close()
             return self._clean(raw, command)
-
-        except paramiko.AuthenticationException:
-            return (
-                f"SSH authentication failed for {user}@{host}:{port}. "
-                f"Check GDP_CLI_USER, GDP_CLI_PASS, or GDP_CLI_KEY_FILE."
-            )
-        except paramiko.SSHException as e:
-            return f"SSH error connecting to {host}:{port}: {e}"
-        except OSError as e:
-            return f"Cannot reach {host}:{port}: {e}"
+        except (paramiko.SSHException, OSError) as exc:
+            return self._error_message(exc)
         finally:
-            client.close()
+            if client is not None:
+                client.close()
+
+    def _ssh_exec_pooled(self, command: str, timeout: int) -> str:
+        """Run *command* on the pooled session, (re)connecting when needed.
+
+        A session that turns out to be dead *before* the command is sent is
+        replaced and the command is retried once. A command that was already
+        sent is never re-sent, so it cannot run twice.
+        """
+        for attempt in (1, 2):
+            reused = self._session_usable()
+            try:
+                if not reused:
+                    self._drop_session()
+                    self._client, self._chan = self._open_session(timeout)
+                self._drain(self._chan)
+                logger.info("SSH command (%s session): %s", "reused" if reused else "new", command)
+                self._chan.send(command + "\n")
+            except (paramiko.SSHException, OSError, EOFError) as exc:
+                self._drop_session()
+                if reused and attempt == 1:
+                    logger.info("Pooled CLI session was stale (%s); reconnecting", exc)
+                    continue
+                return self._error_message(exc)
+            break
+
+        # A reused session has no banner to wait for.
+        cmd_timeout = timeout if reused else max(timeout - min(timeout * 0.5, 30), 15)
+        raw, prompt_seen, closed = self._read_response(self._chan, cmd_timeout)
+        if closed or not prompt_seen:
+            # Timed out or the CLI ended the session: its state is unknown, so
+            # the next command must start from a clean session.
+            self._drop_session()
+        else:
+            self._last_used = self._clock()
+        return self._clean(raw, command)
