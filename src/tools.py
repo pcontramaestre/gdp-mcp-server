@@ -473,17 +473,16 @@ def register_tools(mcp) -> None:
         Returns JSON with, per appliance: name, whether it is the default,
         REST API status (reachable, authenticated, latency_ms, error), the
         appliance identity from the REST API (unit.hostname, ip, unit_type,
-        role, version, online) and Guard CLI status (configured, reachable,
+        version, online) and Guard CLI status (configured, reachable,
         latency_ms, error). All appliances are probed concurrently. The CLI
         check is a TCP connect to the SSH port only — it does not log in.
 
         ``unit.unit_type`` is the raw Guardium value (e.g. "StandaloneNetInsp",
-        the same information as the CLI command ``show unit type``);
-        ``unit.role`` is a best-effort label (central_manager, aggregator,
-        collector) and is null when the type is not recognized.
+        the same information as the CLI command ``show unit type``), returned
+        as-is without interpretation.
 
-        Call this first to find out which appliances exist, what role they
-        have and which are online, instead of trying a command to find out.
+        Call this first to find out which appliances exist, what type they
+        are and which are online, instead of trying a command to find out.
         """
         app = _get_app(ctx)
         await ctx.log("info", f"gdp_list_appliances: probing {len(app.appliances)} appliance(s)")

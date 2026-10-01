@@ -16,23 +16,6 @@ logger = logging.getLogger(__name__)
 _DEFAULT_TIMEOUT = float(os.getenv("GDP_REQUEST_TIMEOUT", "60"))
 
 
-def role_from_unit_type(unit_type: str | None) -> str | None:
-    """Best-effort appliance role from the Guardium ``Unit Type`` string.
-
-    ``unit_data`` reports values such as ``StandaloneNetInsp``. This maps the
-    recognizable parts to a role; the raw value is always returned as well,
-    so an unrecognized type yields ``None`` instead of a wrong guess.
-    """
-    lowered = (unit_type or "").lower()
-    if "manager" in lowered:
-        return "central_manager"
-    if "aggregator" in lowered:
-        return "aggregator"
-    if "netinsp" in lowered or "stap" in lowered:
-        return "collector"
-    return None
-
-
 class GDPClient:
     """Executes HTTP requests against the GDP REST API."""
 
@@ -127,7 +110,7 @@ class GDPClient:
     async def get_unit_info(self) -> dict[str, Any]:
         """Identity of the appliance via the ``unit_data`` REST resource.
 
-        Returns hostname, IP, raw unit type, derived role, version and online
+        Returns hostname, IP, raw unit type, version and online
         flag. Raises RuntimeError when the appliance answers with an error.
         """
         data = await self.request("GET", "unit_data")
@@ -138,7 +121,6 @@ class GDPClient:
             "hostname": data.get("Unit Host"),
             "ip": data.get("IP"),
             "unit_type": unit_type,
-            "role": role_from_unit_type(unit_type),
             "version": data.get("Version"),
             "online": str(data.get("Online", "")).lower() == "true",
         }

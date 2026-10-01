@@ -325,7 +325,7 @@ Clients then send `Authorization: Bearer <api_key>`.
 | `gdp_get_api_details` | Retrieve complete parameter schema, HTTP method, and path for an API. | `api_name` (str), `appliance` (optional) |
 | `gdp_execute_api` | Execute a GuardAPI function or REST endpoint with JSON parameters. | `api_name` (str), `parameters` (dict), `appliance` (optional) |
 | `gdp_guard_cli` | Run Guardium administrative CLI commands via authenticated SSH session. | `command` (str), `appliance` (optional) |
-| `gdp_list_appliances` | List configured appliances with identity (hostname, IP, unit type, role, version) and REST/CLI reachability and latency (JSON). | none |
+| `gdp_list_appliances` | List configured appliances with identity (hostname, IP, unit type, version) and REST/CLI reachability and latency (JSON). | none |
 | `gdp_get_system_metrics` | Structured health metrics via REST (CPU, memory, `/` and `/var` disk, uptime, sniffer buffer/queues, MySQL) with warnings and optional trend. | `appliance` (optional), `samples` (1-60), `include_raw` |
 
 ### ⚡ Persistent CLI session

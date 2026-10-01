@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from src.auth import GDPAuth
-from src.client import GDPClient, role_from_unit_type
+from src.client import GDPClient
 from src.config import GDPConfig
 
 
@@ -191,23 +191,6 @@ async def test_non_json_body_is_wrapped_and_truncated(config):
 # ── Appliance identity (unit_data) ──────────────────────────────
 
 
-@pytest.mark.parametrize(
-    "unit_type, role",
-    [
-        ("StandaloneNetInsp", "collector"),
-        ("Standalone Netinsp stap", "collector"),
-        ("Manager", "central_manager"),
-        ("ManagerAggregator", "central_manager"),
-        ("StandaloneAggregator", "aggregator"),
-        ("Standalone", None),
-        ("", None),
-        (None, None),
-    ],
-)
-def test_role_from_unit_type(unit_type, role):
-    assert role_from_unit_type(unit_type) == role
-
-
 @pytest.mark.asyncio
 async def test_get_unit_info_maps_unit_data(config):
     seen = []
@@ -233,7 +216,6 @@ async def test_get_unit_info_maps_unit_data(config):
         "hostname": "collector.example.com",
         "ip": "10.0.0.5",
         "unit_type": "StandaloneNetInsp",
-        "role": "collector",
         "version": "12.2.2.0",
         "online": True,
     }
