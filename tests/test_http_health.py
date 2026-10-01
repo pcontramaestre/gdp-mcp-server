@@ -60,3 +60,17 @@ def test_admin_health_disabled_without_admin_token(client, monkeypatch):
 )
 def test_exposure_warning(host, tls, warns):
     assert (server._exposure_warning(host, tls) is not None) is warns
+
+
+def test_admin_token_with_non_ascii_does_not_crash(client):
+    resp = client.get("/admin/keys", headers={"X-Admin-Token": "é".encode("latin-1")})
+    assert resp.status_code == 403
+
+
+def test_admin_returns_500_json_when_key_store_is_corrupt(client, tmp_path):
+    (tmp_path / "keys.json").write_text("{ broken")
+    resp = client.get("/admin/keys", headers={"Authorization": "Bearer admin-secret"})
+    assert resp.status_code == 500
+    assert resp.json()["error"] == "Key store unavailable"
+    health = client.get("/admin/health", headers={"Authorization": "Bearer admin-secret"})
+    assert health.status_code == 200 and health.json()["active_keys"] is None

@@ -317,8 +317,10 @@ def _create_http_app(host: str = "127.0.0.1", port: int = 8003) -> Starlette:
         x_admin = request.headers.get("X-Admin-Token", "").strip()
         if x_admin:
             candidates.append(x_admin)
+        expected = admin_token.encode()
         for candidate in candidates:
-            if candidate and secrets.compare_digest(candidate, admin_token):
+            # bytes: compare_digest raises TypeError on non-ASCII str
+            if candidate and secrets.compare_digest(candidate.encode(), expected):
                 return True
         return False
 
@@ -334,6 +336,9 @@ def _create_http_app(host: str = "127.0.0.1", port: int = 8003) -> Starlette:
             status_code=403,
         )
 
+    def _keystore_unavailable(exc: Exception):
+        return JSONResponse({"error": "Key store unavailable", "message": str(exc)}, status_code=500)
+
     async def admin_health(request):
         if not _admin_authorized(request):
             return _admin_forbidden()
@@ -346,6 +351,10 @@ def _create_http_app(host: str = "127.0.0.1", port: int = 8003) -> Starlette:
         else:
             cfg = GDPConfig()
             targets = {"default": f"{cfg.host}:{cfg.port}"}
+        try:
+            active_keys = len(keystore.list_keys())
+        except keystore.KeyStoreError:
+            active_keys = None  # unreadable store: reported, not hidden
         return JSONResponse({
             "status": "ok",
             "server": "GDP MCP Server",
@@ -356,7 +365,7 @@ def _create_http_app(host: str = "127.0.0.1", port: int = 8003) -> Starlette:
                 "sse": "/sse",
             },
             "auth_required": True,
-            "active_keys": len(keystore.list_keys()),
+            "active_keys": active_keys,
             "appliances": targets,
         })
 
@@ -373,19 +382,28 @@ def _create_http_app(host: str = "127.0.0.1", port: int = 8003) -> Starlette:
                 {"error": "Bad Request", "message": "'user' field is required"},
                 status_code=400,
             )
-        result = keystore.generate_key(user)
+        try:
+            result = keystore.generate_key(user)
+        except (keystore.KeyStoreError, OSError) as exc:
+            return _keystore_unavailable(exc)
         return JSONResponse(result, status_code=201)
 
     async def admin_list_keys(request):
         if not _admin_authorized(request):
             return _admin_forbidden()
-        return JSONResponse(keystore.list_keys())
+        try:
+            return JSONResponse(keystore.list_keys())
+        except keystore.KeyStoreError as exc:
+            return _keystore_unavailable(exc)
 
     async def admin_revoke_key(request):
         if not _admin_authorized(request):
             return _admin_forbidden()
         key_prefix = request.path_params["key_prefix"]
-        result = keystore.revoke_key(key_prefix)
+        try:
+            result = keystore.revoke_key(key_prefix)
+        except (keystore.KeyStoreError, OSError) as exc:
+            return _keystore_unavailable(exc)
         if result is None:
             return JSONResponse(
                 {"error": "Not Found", "message": f"No key with prefix '{key_prefix}'"},
@@ -398,7 +416,17 @@ def _create_http_app(host: str = "127.0.0.1", port: int = 8003) -> Starlette:
     middleware = [Middleware(APIKeyMiddleware)]
     logger.info("API key authentication enforced for all transport connections")
     logger.info("Key store: %s", keystore.KEY_STORE_PATH)
-    logger.info("Active keys: %d", len(keystore.list_keys()))
+    try:
+        logger.info("Active keys: %d", len(keystore.list_keys()))
+    except keystore.KeyStoreError as exc:
+        logger.error("%s — all API keys will be rejected until it is fixed", exc)
+    admin_token = os.getenv("MCP_ADMIN_TOKEN", "").strip()
+    if admin_token and len(admin_token) < _MIN_ADMIN_TOKEN_LEN:
+        logger.warning(
+            "MCP_ADMIN_TOKEN is shorter than %d characters; /admin has no "
+            "rate limiting, use a long random value (e.g. openssl rand -hex 32)",
+            _MIN_ADMIN_TOKEN_LEN,
+        )
 
     return Starlette(
         debug=False,
@@ -445,6 +473,7 @@ def _resolve_ssl(args) -> tuple[str | None, str | None]:
     return None, None
 
 
+_MIN_ADMIN_TOKEN_LEN = 24
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
 
 

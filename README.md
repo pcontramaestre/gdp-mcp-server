@@ -170,6 +170,8 @@ MCP_PORT=8003
 GDP_HOST=192.168.1.50
 GDP_PORT=8443
 GDP_API_KEY=tu_api_key_codificada_de_guardium
+# false = no valida el certificado TLS del appliance (habitual con autofirmado, pero
+# permite interceptar las credenciales). Usa true si el certificado es de confianza.
 GDP_VERIFY_SSL=false
 
 # -------------------------------------------------------------

@@ -38,30 +38,39 @@ def _key_prefix(raw_key: str) -> str:
     return raw_key[:8]
 
 
+class KeyStoreError(RuntimeError):
+    """The key store exists but cannot be read; never treated as empty."""
+
+
 def _load_store() -> dict:
-    """Load the key store from disk. Returns empty store if file doesn't exist."""
+    """Load the key store from disk. Returns an empty store only if the file
+    does not exist; an unreadable or corrupt file raises KeyStoreError so a
+    later write cannot silently wipe the existing keys."""
     path = Path(KEY_STORE_PATH)
     if not path.exists():
         return {"keys": {}}
     try:
         with open(path) as f:
             data = json.load(f)
-        if "keys" not in data:
-            data["keys"] = {}
-        return data
     except (OSError, json.JSONDecodeError) as e:
         logger.error("Failed to read key store at %s: %s", KEY_STORE_PATH, e)
-        return {"keys": {}}
+        raise KeyStoreError(f"Cannot read key store at {KEY_STORE_PATH}: {e}") from e
+    if not isinstance(data, dict) or not isinstance(data.get("keys", {}), dict):
+        raise KeyStoreError(f"Key store at {KEY_STORE_PATH} has an unexpected format")
+    data.setdefault("keys", {})
+    return data
 
 
 def _save_store(store: dict) -> None:
-    """Persist the key store to disk."""
+    """Persist the key store atomically, created with mode 0600 from the start."""
     path = Path(KEY_STORE_PATH)
     path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
     try:
-        with open(path, "w") as f:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
             json.dump(store, f, indent=2)
-        os.chmod(KEY_STORE_PATH, 0o600)
+        os.replace(tmp, path)
     except OSError as e:
         logger.error("Failed to write key store at %s: %s", KEY_STORE_PATH, e)
         raise
@@ -107,8 +116,11 @@ def validate_key(raw_key: str) -> dict | None:
 
     hashed = _hash_key(raw_key)
 
-    with _lock:
-        store = _load_store()
+    try:
+        with _lock:
+            store = _load_store()
+    except KeyStoreError:
+        return None  # fail closed: nobody is authenticated by an unreadable store
 
     entry = store["keys"].get(hashed)
     if entry:
