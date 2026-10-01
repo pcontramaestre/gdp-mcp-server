@@ -298,6 +298,22 @@ Configure an MCP stdio server with:
 
 ---
 
+## 🌐 HTTP mode (streamable-http / SSE)
+
+The recommended setup is `stdio` (a local process started by your MCP client). The server can also run as a network service with `--transport streamable-http`; in that mode `/mcp` and `/sse` require an API key, and `/admin` requires `MCP_ADMIN_TOKEN`.
+
+By default it listens on `0.0.0.0`; set `MCP_HOST=127.0.0.1` unless you really want it reachable from the network, and put a TLS reverse proxy in front if you expose it.
+
+Create an API key with:
+
+```bash
+curl -X POST http://127.0.0.1:8003/admin/keys \
+  -H "Authorization: Bearer $MCP_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" -d '{"user": "my-client"}'
+```
+
+Clients then send `Authorization: Bearer <api_key>`.
+
 ## 🛠️ Available MCP Tools
 
 | Tool | Description | Key Parameters |
