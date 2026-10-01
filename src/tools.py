@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 
 from .cli import redact_command, requires_confirmation
 from .metrics import fetch_system_metrics
+from .safety import api_requires_confirmation, valid_resource_name
 
 if TYPE_CHECKING:
     from .server import AppContext, ApplianceContext
@@ -70,6 +71,37 @@ def _error_response(code: str, message: str, suggestion: str = "") -> str:
 class DestructiveConfirmation(BaseModel):
     """User confirmation for destructive CLI operations."""
     confirm: bool = Field(description="Set to true to proceed with the destructive command")
+
+
+async def _confirm_mutation(ctx: Context, appliance: str, what: str, detail: str) -> str | None:
+    """Ask the user to approve a state-changing call via MCP elicitation.
+
+    Returns None when approved, otherwise the message to hand back instead of
+    running the call (cancelled, or the client cannot ask).
+    """
+    await ctx.log("warning", f"Needs confirmation on '{appliance}': {what}")
+    try:
+        result = await ctx.elicit(
+            message=(
+                f"⚠️ {what} may modify state on '{appliance}'.\n{detail}\n"
+                f"Do you want to proceed?"
+            ),
+            schema=DestructiveConfirmation,
+        )
+    except Exception:
+        return (
+            f"⚠️ BLOCKED: {what} may modify state on '{appliance}'. "
+            f"Your MCP client does not support elicitation for confirmation, "
+            f"so it was not executed."
+        )
+    if result.action != "accept" or not result.data or not result.data.confirm:
+        return f"Cancelled: {what} was not executed on '{appliance}'."
+    return None
+
+
+def _param_names(parameters: dict | None) -> str:
+    """Parameter names only: values may be secrets and are not echoed."""
+    return f"Parameters: {', '.join(sorted(parameters)) or 'none'}" if parameters else "No parameters."
 
 
 def register_tools(mcp) -> None:
@@ -269,7 +301,7 @@ def register_tools(mcp) -> None:
         title="Execute GDP API",
         annotations=ToolAnnotations(
             readOnlyHint=False,
-            destructiveHint=False,
+            destructiveHint=True,
             idempotentHint=False,
             openWorldHint=True,
         ),
@@ -305,6 +337,19 @@ def register_tools(mcp) -> None:
             elif "reportName" in call_params or "reportParameter" in call_params:
                 verb = "POST"
 
+            if not valid_resource_name(api_function_name):
+                return _error_response(
+                    "INVALID_RESOURCE",
+                    f"'{api_function_name}' is not a valid REST resource name.",
+                    "Use gdp_search_apis to find endpoints.",
+                )
+            blocked = None
+            if api_requires_confirmation(api_function_name, verb):
+                blocked = await _confirm_mutation(
+                    ctx, appl.name, f"{verb} /restAPI/{api_function_name}", _param_names(call_params)
+                )
+            if blocked:
+                return blocked
             await ctx.log("info", f"Executing direct REST resource {verb} /restAPI/{api_function_name} on '{appl.name}'")
             await ctx.info(f"Direct calling GDP ({appl.name}): {verb} /restAPI/{api_function_name}")
             try:
@@ -326,6 +371,16 @@ def register_tools(mcp) -> None:
                     f"Endpoint '{api_function_name}' not found in discovery index on '{appl.name}' and direct invocation failed: {exc}",
                     "Use gdp_search_apis to find endpoints or verify the endpoint path.",
                 )
+
+        if api_requires_confirmation(ep.function_name, ep.verb):
+            blocked = await _confirm_mutation(
+                ctx,
+                appl.name,
+                f"{ep.function_name} ({ep.verb} /restAPI/{ep.resource_name})",
+                _param_names(parameters),
+            )
+            if blocked:
+                return blocked
 
         await ctx.log("info", f"Calling {ep.verb} /restAPI/{ep.resource_name} on '{appl.name}'")
         await ctx.info(f"Calling GDP ({appl.name}): {ep.verb} /restAPI/{ep.resource_name}")
