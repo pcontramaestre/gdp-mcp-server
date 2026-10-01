@@ -345,3 +345,69 @@ async def test_check_reachable_closed_port():
     result = await GDPCLIClient(cfg).check_reachable(timeout=2)
     assert result["reachable"] is False
     assert result["error"]
+
+
+# ── requires_confirmation: read-only allowlist ──────────────────
+
+from src.cli import redact_command, requires_confirmation  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        "show system hostname",
+        "show unit type",
+        "list inspection-engines",
+        "support show hardware-info",
+        "grdapi list_datasource",
+        "grdapi get_user_info user=x",
+        "  SHOW build",
+    ],
+)
+def test_read_only_commands_need_no_confirmation(cmd):
+    assert requires_confirmation(cmd) is False
+
+
+@pytest.mark.parametrize(
+    "cmd",
+    [
+        # underscore-joined verbs used to slip through \b word boundaries
+        "grdapi delete_user user=x",
+        "grdapi create_datasource name=x",
+        "grdapi restart_stap",
+        "grdapi set_alert_level",
+        # not on the read-only allowlist
+        "ping 10.0.0.1",
+        "grdapi",
+        "showfoo",
+        "grdapi listing_x",
+        # extra commands smuggled in
+        "show system hostname\ngrdapi delete_user user=x",
+        "show system hostname\rstop system",
+        "show system hostname; reboot",
+        "show system hostname | tee x",
+        "show $(reboot)",
+        "stop system",
+    ],
+)
+def test_other_commands_need_confirmation(cmd):
+    assert requires_confirmation(cmd) is True
+
+
+def test_redact_keeps_read_only_commands_whole():
+    assert redact_command("show system hostname") == "show system hostname"
+
+
+def test_redact_hides_arguments_of_other_commands():
+    out = redact_command("grdapi create_user user=bob password=hunter2")
+    assert "hunter2" not in out and "bob" not in out
+    assert out.startswith("grdapi create_user")
+
+
+@pytest.mark.asyncio
+async def test_execute_blocks_underscore_verbs_without_confirmation():
+    from src.config import GDPConfig
+
+    client = GDPCLIClient(GDPConfig(cli_pass="x"))
+    out = await client.execute("grdapi delete_user user=x")
+    assert "BLOCKED" in out

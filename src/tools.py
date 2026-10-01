@@ -22,6 +22,7 @@ from mcp.server.fastmcp import Context
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
 
+from .cli import redact_command, requires_confirmation
 from .metrics import fetch_system_metrics
 
 if TYPE_CHECKING:
@@ -408,7 +409,7 @@ def register_tools(mcp) -> None:
         """
         appl = _resolve_appliance(ctx, appliance)
         await ctx.report_progress(progress=0, total=3)
-        await ctx.log("info", f"gdp_guard_cli: command='{command}' appliance={appl.name}")
+        await ctx.log("info", f"gdp_guard_cli: command='{redact_command(command)}' appliance={appl.name}")
         if appl.cli_client is None:
             return _error_response(
                 "CLI_NOT_CONFIGURED",
@@ -416,21 +417,19 @@ def register_tools(mcp) -> None:
                 f"Set GDP_CLI_PASS or GDP_CLI_KEY_FILE (or GDP_{appl.name.upper()}_CLI_PASS / GDP_{appl.name.upper()}_CLI_KEY_FILE) to enable CLI access.",
             )
 
-        from .cli import _DESTRUCTIVE_PATTERNS
-
         command = command.strip()
         if not command:
             return "No command provided."
 
         # Destructive command detection with MCP elicitation
-        if _DESTRUCTIVE_PATTERNS.search(command):
-            await ctx.log("warning", f"Destructive command detected on '{appl.name}': '{command}'")
-            await ctx.warning(f"Destructive command detected on '{appl.name}': '{command}'")
+        if requires_confirmation(command):
+            await ctx.log("warning", f"Non-read-only command on '{appl.name}': '{redact_command(command)}'")
+            await ctx.warning(f"Non-read-only command on '{appl.name}': '{redact_command(command)}'")
             await ctx.report_progress(progress=1, total=3)
             try:
                 result = await ctx.elicit(
                     message=(
-                        f"⚠️ The command '{command}' may modify system state on '{appl.name}'.\n"
+                        f"⚠️ The command '{command}' is not a known read-only command and may modify system state on '{appl.name}'.\n"
                         f"Do you want to proceed?"
                     ),
                     schema=DestructiveConfirmation,
@@ -448,8 +447,8 @@ def register_tools(mcp) -> None:
                 )
 
         await ctx.report_progress(progress=2, total=3)
-        await ctx.log("info", f"Executing CLI on '{appl.name}': {command}")
-        await ctx.info(f"Executing CLI on '{appl.name}': {command}")
+        await ctx.log("info", f"Executing CLI on '{appl.name}': {redact_command(command)}")
+        await ctx.info(f"Executing CLI on '{appl.name}': {redact_command(command)}")
 
         result = await appl.cli_client.execute(command, confirm_destructive=True)
         await ctx.report_progress(progress=3, total=3)

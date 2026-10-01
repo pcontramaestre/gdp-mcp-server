@@ -21,16 +21,47 @@ logger = logging.getLogger("gdp_mcp.cli")
 # Strip ANSI escape sequences from CLI output
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
-# Commands that modify system state — blocked unless confirm_destructive=True.
-# Includes Guardium mutation verbs (store, halt, set, …), not only stop/delete.
+# Verbs that modify system state. Matched as whole words where "_" also
+# separates words, so ``grdapi delete_user`` and ``restart_stap`` are caught.
 _DESTRUCTIVE_PATTERNS = re.compile(
-    r"\b(restart|reboot|shutdown|delete|remove|drop|restore|"
+    r"(?<![a-z0-9])(restart|reboot|shutdown|delete|remove|drop|restore|"
     r"reset|purge|truncate|kill|stop|disable|decommission|"
     r"uninstall|format|wipe|"
     r"store|set|create|add|modify|update|enable|install|upgrade|"
-    r"apply|deploy|halt|clear|abort|suspend|revoke|unregister)\b",
+    r"apply|deploy|halt|clear|abort|suspend|revoke|unregister)(?![a-z0-9])",
     re.IGNORECASE,
 )
+
+# Only these command shapes are treated as read-only; anything else needs the
+# user's confirmation, even if it contains none of the verbs above.
+_READ_ONLY_CMDS = re.compile(
+    r"^\s*(show|list|support\s+show|grdapi\s+(?:list|get)_[a-z0-9_]*)(?![a-z0-9_])",
+    re.IGNORECASE,
+)
+
+# A newline would submit a second command; the rest chain or redirect.
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")
+_SHELL_META = re.compile(r"[;&|`$<>]")
+
+
+def requires_confirmation(command: str) -> bool:
+    """True unless *command* is a plain read-only Guard CLI command."""
+    if _CONTROL_CHARS.search(command) or _SHELL_META.search(command):
+        return True
+    if _DESTRUCTIVE_PATTERNS.search(command):
+        return True
+    return not _READ_ONLY_CMDS.match(command)
+
+
+def redact_command(command: str) -> str:
+    """Command text that is safe to log: arguments of non-read-only commands
+    (which may carry passwords or keys) are hidden."""
+    command = command.strip()
+    if not requires_confirmation(command):
+        return command[:200]
+    words = command.split()[:2]
+    return " ".join(words) + " [args hidden]"
+
 
 # Guard CLI prompt pattern — e.g. "guardiumdpdp.ibm.com> "
 _PROMPT_RE = re.compile(r"[\w.\-]+>\s*$")
@@ -164,10 +195,10 @@ class GDPCLIClient:
                 f"-p {self._config.cli_port}"
             )
 
-        if _DESTRUCTIVE_PATTERNS.search(command) and not confirm_destructive:
+        if requires_confirmation(command) and not confirm_destructive:
             return (
-                f"⚠️ BLOCKED: '{command}' appears destructive.\n"
-                f"This command may modify system state. "
+                f"⚠️ BLOCKED: '{redact_command(command)}' is not a read-only command.\n"
+                f"It may modify system state. "
                 f"To proceed, call gdp_guard_cli with confirm_destructive=True.\n"
                 f"Ask the user for confirmation first."
             )
@@ -325,7 +356,7 @@ class GDPCLIClient:
         client = None
         try:
             client, chan = self._open_session(timeout)
-            logger.info("SSH command: %s", command)
+            logger.info("SSH command: %s", redact_command(command))
             chan.send(command + "\n")
             cmd_timeout = max(timeout - min(timeout * 0.5, 30), 15)
             raw, _, _ = self._read_response(chan, cmd_timeout)
@@ -351,7 +382,11 @@ class GDPCLIClient:
                     self._drop_session()
                     self._client, self._chan = self._open_session(timeout)
                 self._drain(self._chan)
-                logger.info("SSH command (%s session): %s", "reused" if reused else "new", command)
+                logger.info(
+                    "SSH command (%s session): %s",
+                    "reused" if reused else "new",
+                    redact_command(command),
+                )
                 self._chan.send(command + "\n")
             except (paramiko.SSHException, OSError, EOFError) as exc:
                 self._drop_session()
