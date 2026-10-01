@@ -436,6 +436,6 @@ Compared with the original [IBM/gdp-mcp-server](https://github.com/IBM/gdp-mcp-s
 - **Original project:** [IBM/gdp-mcp-server](https://github.com/IBM/gdp-mcp-server) by **Anuj Shrivastava** (IBM).
 - **This fork:** **Pablo Contramaestre** ([@pcontramaestre](https://github.com/pcontramaestre)).
 
-This project is declared as **Apache License 2.0**.
+This project is distributed under the **Apache License 2.0**; see the [LICENSE](LICENSE) file.
 
 > **Disclaimer.** This tool acts directly on IBM Guardium Data Protection appliances. Test API calls and CLI commands on non-production systems before using them on production security infrastructure. It is not an official IBM product.
