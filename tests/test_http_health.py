@@ -45,3 +45,18 @@ def test_admin_health_disabled_without_admin_token(client, monkeypatch):
     monkeypatch.delenv("MCP_ADMIN_TOKEN")
     resp = client.get("/admin/health", headers={"Authorization": "Bearer "})
     assert resp.status_code == 403
+
+
+@pytest.mark.parametrize(
+    "host, tls, warns",
+    [
+        ("127.0.0.1", False, False),
+        ("localhost", False, False),
+        ("::1", False, False),
+        ("0.0.0.0", False, True),
+        ("10.1.2.3", False, True),
+        ("0.0.0.0", True, False),
+    ],
+)
+def test_exposure_warning(host, tls, warns):
+    assert (server._exposure_warning(host, tls) is not None) is warns

@@ -161,7 +161,7 @@ Ideal if you are connecting to a single Central Manager or Collector:
 ```bash
 # MCP Server Transport Mode: stdio (for local IDE) or streamable-http
 MCP_TRANSPORT=stdio
-MCP_HOST=0.0.0.0
+MCP_HOST=127.0.0.1
 MCP_PORT=8003
 
 # -------------------------------------------------------------
@@ -302,7 +302,7 @@ Configure an MCP stdio server with:
 
 The recommended setup is `stdio` (a local process started by your MCP client). The server can also run as a network service with `--transport streamable-http`; in that mode `/mcp` and `/sse` require an API key, and `/admin` requires `MCP_ADMIN_TOKEN`.
 
-By default it listens on `0.0.0.0`; set `MCP_HOST=127.0.0.1` unless you really want it reachable from the network, and put a TLS reverse proxy in front if you expose it.
+By default it listens on `127.0.0.1` (this machine only). To reach it from other hosts set `MCP_HOST` (e.g. `0.0.0.0`) **and** enable TLS (`MCP_SSL_CERTFILE`/`MCP_SSL_KEYFILE`) or put a TLS reverse proxy in front: without TLS the API keys travel in clear text, and the server logs a warning when it is exposed that way.
 
 Create an API key with:
 

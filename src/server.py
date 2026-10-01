@@ -223,7 +223,7 @@ class APIKeyMiddleware:
 # ── Streamable HTTP App with Auth + Admin ───────────────────────
 
 
-def _create_http_app(host: str = "0.0.0.0", port: int = 8003) -> Starlette:
+def _create_http_app(host: str = "127.0.0.1", port: int = 8003) -> Starlette:
     """Create a Starlette app wrapping FastMCP's Streamable HTTP transport.
 
     FastMCP.streamable_http_app() produces a Starlette app that registers
@@ -445,6 +445,20 @@ def _resolve_ssl(args) -> tuple[str | None, str | None]:
     return None, None
 
 
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def _exposure_warning(host: str, tls: bool) -> str | None:
+    """Warning text when the HTTP server is reachable from the network without TLS."""
+    if host in _LOOPBACK_HOSTS or tls:
+        return None
+    return (
+        f"Listening on {host} without TLS: API keys travel in clear text and the "
+        "server is reachable from the network. Bind to 127.0.0.1, enable TLS "
+        "(MCP_SSL_CERTFILE/MCP_SSL_KEYFILE) or put a TLS reverse proxy in front."
+    )
+
+
 def _generate_self_signed_cert(
     cert_dir: str = "/certs",
 ) -> tuple[str, str]:
@@ -487,8 +501,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--host",
-        default=os.getenv("MCP_HOST", "0.0.0.0"),
-        help="Host to bind HTTP server (default: 0.0.0.0)",
+        default=os.getenv("MCP_HOST", "127.0.0.1"),
+        help="Host to bind HTTP server (default: 127.0.0.1, local only)",
     )
     parser.add_argument(
         "--port",
@@ -527,6 +541,9 @@ def main() -> None:
 
         ssl_certfile, ssl_keyfile = _resolve_ssl(args)
         scheme = "https" if ssl_certfile else "http"
+        warning = _exposure_warning(args.host, bool(ssl_certfile))
+        if warning:
+            logger.warning(warning)
 
         logger.info("Streamable HTTP on %s:%d (%s)", args.host, args.port, scheme.upper())
         logger.info("Streamable HTTP endpoint: %s://%s:%d/mcp", scheme, args.host, args.port)
