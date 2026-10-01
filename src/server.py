@@ -38,6 +38,10 @@ logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
     format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
 )
+# httpx logs every request URL (including query strings) at INFO; keep that and
+# the HTTP wire-level debug output out of the logs.
+for _noisy in ("httpx", "httpcore"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 logger = logging.getLogger("gdp_mcp")
 
 

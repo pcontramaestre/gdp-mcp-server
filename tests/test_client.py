@@ -229,3 +229,15 @@ async def test_get_unit_info_raises_on_api_error(config):
     )
     with pytest.raises(RuntimeError, match="nope"):
         await client.get_unit_info()
+
+
+@pytest.mark.asyncio
+async def test_debug_log_does_not_contain_parameter_values(config, caplog):
+    import logging
+
+    client, _ = make_client(config, lambda request: httpx.Response(200, json={}))
+    with caplog.at_level(logging.DEBUG, logger="src.client"):
+        await client.request("POST", "user", params={"password": "hunter2", "user": "bob"})
+    text = caplog.text
+    assert "hunter2" not in text and "bob" not in text
+    assert "password" in text  # the names are still logged

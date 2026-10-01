@@ -66,7 +66,7 @@ class GDPClient:
             "Content-Type": "application/json",
         }
 
-        logger.debug("%s %s params=%s", method.upper(), url, params)
+        logger.debug("%s %s params=%s", method.upper(), url, sorted(params) if params else None)  # names only: values may be secrets
 
         http = self._get_http()
         if method.upper() in ("GET",):
