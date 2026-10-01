@@ -316,7 +316,7 @@ curl -X POST http://127.0.0.1:8003/admin/keys \
 
 Clients then send `Authorization: Bearer <api_key>`.
 
-`GET /health` is public and only returns `{"status": "ok"}`. Configured appliances and key counts are available at `GET /admin/health` with the admin token. The key store defaults to `/data/keys.json`; set `GDP_MCP_KEY_STORE_PATH` to a writable path for a local install.
+`GET /health` is public and only returns `{"status": "ok"}`. Configured appliances and key counts are available at `GET /admin/health` with the admin token. The key store defaults to `~/.gdp-mcp/keys.json` (override with `GDP_MCP_KEY_STORE_PATH`).
 
 ## 🛠️ Available MCP Tools
 

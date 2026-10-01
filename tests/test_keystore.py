@@ -60,3 +60,15 @@ def test_unreadable_store_fails_closed(store):
 def test_missing_store_is_simply_empty(store):
     assert keystore.list_keys() == []
     assert keystore.validate_key("whatever") is None
+
+
+def test_default_store_path_is_per_user_not_a_system_directory(monkeypatch, tmp_path):
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+    assert keystore._default_store_path() == str(tmp_path / ".gdp-mcp" / "keys.json")
+
+
+def test_default_store_directory_is_private(monkeypatch, tmp_path):
+    target = tmp_path / ".gdp-mcp" / "keys.json"
+    monkeypatch.setattr(keystore, "KEY_STORE_PATH", str(target))
+    keystore.generate_key("alice")
+    assert stat.S_IMODE(os.stat(target.parent).st_mode) == 0o700

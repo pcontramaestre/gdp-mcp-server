@@ -20,9 +20,14 @@ from . import (
 
 logger = logging.getLogger("gdp_mcp.keystore")
 
-# Default key store path — can be overridden via GDP_MCP_KEY_STORE_PATH env var
-_DEFAULT_KEY_STORE_PATH = "/data/keys.json"
-KEY_STORE_PATH = os.environ.get("GDP_MCP_KEY_STORE_PATH", _DEFAULT_KEY_STORE_PATH)
+
+def _default_store_path() -> str:
+    """Per-user location, writable on a normal local install."""
+    return str(Path.home() / ".gdp-mcp" / "keys.json")
+
+
+# Override with GDP_MCP_KEY_STORE_PATH (e.g. in .env)
+KEY_STORE_PATH = os.environ.get("GDP_MCP_KEY_STORE_PATH") or _default_store_path()
 
 # Thread lock for concurrent access
 _lock = threading.Lock()
@@ -64,7 +69,7 @@ def _load_store() -> dict:
 def _save_store(store: dict) -> None:
     """Persist the key store atomically, created with mode 0600 from the start."""
     path = Path(KEY_STORE_PATH)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     tmp = path.with_name(path.name + ".tmp")
     try:
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
