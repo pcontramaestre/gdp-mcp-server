@@ -298,29 +298,9 @@ def _create_http_app(host: str = "0.0.0.0", port: int = 8003) -> Starlette:
             yield
 
     async def health(request):
-        names = load_appliance_names()
-        if names:
-            targets = {
-                n: f"{GDPConfig.from_prefix(f'GDP_{n.upper()}').host}:"
-                   f"{GDPConfig.from_prefix(f'GDP_{n.upper()}').port}"
-                for n in names
-            }
-        else:
-            cfg = GDPConfig()
-            targets = {"default": f"{cfg.host}:{cfg.port}"}
-        return JSONResponse({
-            "status": "ok",
-            "server": "GDP MCP Server",
-            "version": "2.0.0",
-            "protocol": "2025-11-25",
-            "transports": {
-                "streamable_http": "/mcp",
-                "sse": "/sse",
-            },
-            "auth_required": True,
-            "active_keys": len(keystore.list_keys()),
-            "appliances": targets,
-        })
+        # Public and unauthenticated: liveness only, nothing about the
+        # deployment. Details live in /admin/health.
+        return JSONResponse({"status": "ok"})
 
     # ── Admin endpoints (MCP_ADMIN_TOKEN required; no IP trust) ──
 
@@ -353,6 +333,32 @@ def _create_http_app(host: str = "0.0.0.0", port: int = 8003) -> Starlette:
             },
             status_code=403,
         )
+
+    async def admin_health(request):
+        if not _admin_authorized(request):
+            return _admin_forbidden()
+        names = load_appliance_names()
+        if names:
+            targets = {}
+            for n in names:
+                cfg = GDPConfig.from_prefix(f"GDP_{n.upper()}")
+                targets[n] = f"{cfg.host}:{cfg.port}"
+        else:
+            cfg = GDPConfig()
+            targets = {"default": f"{cfg.host}:{cfg.port}"}
+        return JSONResponse({
+            "status": "ok",
+            "server": "GDP MCP Server",
+            "version": "2.0.0",
+            "protocol": "2025-11-25",
+            "transports": {
+                "streamable_http": "/mcp",
+                "sse": "/sse",
+            },
+            "auth_required": True,
+            "active_keys": len(keystore.list_keys()),
+            "appliances": targets,
+        })
 
     async def admin_create_key(request):
         if not _admin_authorized(request):
@@ -398,6 +404,7 @@ def _create_http_app(host: str = "0.0.0.0", port: int = 8003) -> Starlette:
         debug=False,
         routes=[
             Route("/health", health),
+            Route("/admin/health", admin_health, methods=["GET"]),
             Route("/admin/keys", admin_create_key, methods=["POST"]),
             Route("/admin/keys", admin_list_keys, methods=["GET"]),
             Route("/admin/keys/{key_prefix}", admin_revoke_key, methods=["DELETE"]),
