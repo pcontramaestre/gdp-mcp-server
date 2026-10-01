@@ -14,6 +14,10 @@ import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
+from . import (
+    config as _config,  # noqa: F401  (loads .env before KEY_STORE_PATH is read)
+)
+
 logger = logging.getLogger("gdp_mcp.keystore")
 
 # Default key store path — can be overridden via GDP_MCP_KEY_STORE_PATH env var
