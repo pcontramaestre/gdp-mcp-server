@@ -336,6 +336,7 @@ Each appliance keeps one SSH session to the Guard CLI and reuses it, so the firs
 - If the session turns out to be dead before a command is sent, it is replaced and the command is retried once. A command that was already sent is never re-sent.
 - If a command times out, the session is discarded so its leftover output cannot leak into the next command.
 - Set `GDP_CLI_PERSISTENT=false` to go back to one SSH connection per command. Both settings also accept the per-appliance prefix (e.g. `GDP_OCI_CLI_IDLE_TTL`).
+- **SSH host keys are verified.** By default (`GDP_CLI_HOST_KEY_CHECK=tofu`) the appliance's key is learned on the first connection and saved to `~/.gdp-mcp/known_hosts` (`GDP_CLI_KNOWN_HOSTS`); if it later changes, the connection is refused with a message explaining why. Use `strict` to accept only hosts already in that file, or `off` to disable the check (not recommended). If an appliance is legitimately rebuilt, delete its line from the file. Both settings also accept the per-appliance prefix.
 
 ### 🛡️ CLI Command Safeguards
 `gdp_guard_cli` includes a built-in safety inspection engine:

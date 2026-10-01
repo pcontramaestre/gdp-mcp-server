@@ -82,6 +82,11 @@ class GDPConfig:
     # Guard CLI closes sessions idle for ~4 minutes.
     cli_persistent: bool = field(default_factory=lambda: _truthy(os.getenv("GDP_CLI_PERSISTENT", "true")))
     cli_idle_ttl: float = field(default_factory=lambda: float(os.getenv("GDP_CLI_IDLE_TTL", "180")))
+    # SSH host key checking: "tofu" learns a host's key on first contact and
+    # rejects it if it later changes; "strict" only accepts hosts already in
+    # the known_hosts file; "off" accepts anything (not recommended).
+    cli_host_key_check: str = field(default_factory=lambda: os.getenv("GDP_CLI_HOST_KEY_CHECK", "tofu").strip().lower())
+    cli_known_hosts: str = field(default_factory=lambda: os.getenv("GDP_CLI_KNOWN_HOSTS", "~/.gdp-mcp/known_hosts"))
 
     @property
     def base_url(self) -> str:
@@ -142,6 +147,8 @@ class GDPConfig:
             cli_key_file=_get("CLI_KEY_FILE", "GDP_CLI_KEY_FILE"),
             cli_persistent=_truthy(_get("CLI_PERSISTENT", "GDP_CLI_PERSISTENT", "true")),
             cli_idle_ttl=float(_get("CLI_IDLE_TTL", "GDP_CLI_IDLE_TTL", "180")),
+            cli_host_key_check=_get("CLI_HOST_KEY_CHECK", "GDP_CLI_HOST_KEY_CHECK", "tofu").strip().lower(),
+            cli_known_hosts=_get("CLI_KNOWN_HOSTS", "GDP_CLI_KNOWN_HOSTS", "~/.gdp-mcp/known_hosts"),
         )
 
     def cache_path_for(self, name: str) -> Path:

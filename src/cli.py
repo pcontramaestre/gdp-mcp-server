@@ -11,6 +11,7 @@ import os
 import re
 import threading
 import time
+from pathlib import Path
 
 import paramiko
 
@@ -271,8 +272,53 @@ class GDPCLIClient:
         result = "\n".join(cleaned).strip()
         return result or "(no output)"
 
+    def _known_hosts_path(self) -> Path:
+        return Path(self._config.cli_known_hosts).expanduser()
+
+    def _apply_host_key_policy(self, client: paramiko.SSHClient) -> None:
+        """Configure how *client* treats the appliance's SSH host key.
+
+        A key that differs from a remembered one always aborts the connection
+        (paramiko raises BadHostKeyException), whatever the policy for new hosts.
+        """
+        mode = self._config.cli_host_key_check
+        if mode == "off":
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            return
+        path = self._known_hosts_path()
+        if path.exists():
+            client.load_host_keys(str(path))
+        if mode == "strict":
+            client.set_missing_host_key_policy(paramiko.RejectPolicy())
+        else:  # "tofu" (also the fallback for unrecognized values)
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+    def _remember_host_keys(self, client: paramiko.SSHClient) -> None:
+        """Persist host keys learned on first contact (tofu mode only)."""
+        if self._config.cli_host_key_check in ("off", "strict"):
+            return
+        path = self._known_hosts_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            client.save_host_keys(str(path))
+            os.chmod(path, 0o600)
+        except OSError as exc:
+            logger.warning("Could not save SSH host keys to %s: %s", path, exc)
+
     def _error_message(self, exc: Exception) -> str:
         host, port, user = self._config.cli_host, self._config.cli_port, self._config.cli_user
+        if isinstance(exc, paramiko.BadHostKeyException):
+            return (
+                f"SSH host key for {host}:{port} does NOT match the one remembered in "
+                f"{self._known_hosts_path()}. This can mean someone is intercepting the "
+                f"connection. If the appliance was legitimately rebuilt, remove its line "
+                f"from that file and retry."
+            )
+        if isinstance(exc, paramiko.SSHException) and "not found in known_hosts" in str(exc):
+            return (
+                f"SSH host key for {host}:{port} is not in {self._known_hosts_path()} and "
+                f"GDP_CLI_HOST_KEY_CHECK=strict. Add the host key to that file first."
+            )
         if isinstance(exc, paramiko.AuthenticationException):
             return (
                 f"SSH authentication failed for {user}@{host}:{port}. "
@@ -285,7 +331,7 @@ class GDPCLIClient:
     def _open_session(self, timeout: int) -> tuple[paramiko.SSHClient, paramiko.Channel]:
         """Connect, open the interactive Guard CLI shell and wait for its prompt."""
         client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        self._apply_host_key_policy(client)
 
         host = self._config.cli_host
         port = self._config.cli_port
@@ -309,6 +355,7 @@ class GDPCLIClient:
                 connect_kwargs["password"] = password
 
             client.connect(**connect_kwargs)
+            self._remember_host_keys(client)
             transport = client.get_transport()
             if transport is not None:
                 transport.set_keepalive(30)
